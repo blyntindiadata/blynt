@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "201410726574",
+    "project_id": "blyntfinal",
+    "storage_bucket": "blyntfinal.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:201410726574:android:a738d9c18f70f811c93b3f",
+        "android_client_info": {
+          "package_name": "com.blynt.india"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "201410726574-q9je6ie33mku6b39ltebogodi7b5mhkp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.blynt.india",
+            "certificate_hash": "184110e47d9da81e8d59dcb7b4274ffc63ee622a"
+          }
+        },
+        {
+          "client_id": "201410726574-seml43m1j71ckcl5s92u2ahbq29tl8jg.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC2A-HshMv2L1cKf1v8MkdfT-jSyjNaL4I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "201410726574-seml43m1j71ckcl5s92u2ahbq29tl8jg.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "201410726574-5bfdptv048n5viabagi8iuhujtmputvl.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.blynt.india--json"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
