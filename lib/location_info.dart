@@ -214,7 +214,7 @@ class _LocationMapPageState extends State<LocationMapPage> {
         firstName: widget.firstName,
         lastName: widget.lastName,
         username: widget.username,
-        uid: widget.uid,
+        uid: widget.uid, email: widget.email,
       ),
     ),
   );

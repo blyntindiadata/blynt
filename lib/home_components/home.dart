@@ -5,9 +5,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:startup/events/category_selection.dart';
-import 'package:startup/home_tabs/category_tabs.dart';
-import 'package:startup/home_tabs/for_you.dart';
+import 'package:startup/home_components/community_dashboard.dart';
+import 'package:startup/home_components/community_selection_widget.dart';
+import 'package:startup/home_components/create_community_screen.dart';
 import 'package:startup/searchpageoutlets.dart';
 import 'bottom_nav_bar.dart';
 
@@ -16,8 +16,9 @@ class Home extends StatefulWidget {
   final String? lastName;
   final String uid;
   final String username;
+  final String email;
 
-  const Home({super.key, this.firstName, this.lastName, required this.username, required this.uid});
+  const Home({super.key, this.firstName, this.lastName, required this.username, required this.uid, required this.email});
 
   @override
   State<Home> createState() => _HomeState();
@@ -26,9 +27,14 @@ class Home extends StatefulWidget {
 class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   String firstName = '';
   String lastName = '';
-  String? address;
   String username = '';
   String uid = '';
+  String email = '';
+
+  // Community related variables
+  String? userCommunityId;
+  String? userCommunityRole;
+  bool isLoadingCommunity = true;
 
   bool isDrawerOpen = false;
   late AnimationController _controller;
@@ -41,30 +47,98 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   bool isIconTapped = false;
+  StreamSubscription<QuerySnapshot>? _communityRequestsSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _listenToApprovedRequests();
     _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 160));
     _scaleAnimation = Tween<double>(begin: 1, end: 0.85).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
     _slideAnimation = Tween<Offset>(begin: Offset.zero, end: const Offset(0.6, 0)).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
     Future.delayed(const Duration(seconds: 2), _startSearchScrollLoop);
   }
 
+  void _listenToApprovedRequests() {
+    _communityRequestsSubscription = FirebaseFirestore.instance
+        .collection('community_requests')
+        .where('approved', isEqualTo: true)
+        .where('processed', isEqualTo: false)
+        .snapshots()
+        .listen((snapshot) async {
+      for (final doc in snapshot.docs) {
+        await _createCommunityFromRequest(doc);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _communityRequestsSubscription?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _createCommunityFromRequest(QueryDocumentSnapshot doc) async {
+    try {
+      final data = doc.data() as Map<String, dynamic>;
+      
+      // Create the community with isActive field
+      final communityRef = await FirebaseFirestore.instance
+          .collection('communities')
+          .add({
+        'name': data['name'],
+        'description': data['description'],
+        'years': data['years'],
+        'branches': data['branches'],
+        'createdBy': data['createdBy'],
+        'createdByName': data['createdByName'],
+        'createdAt': FieldValue.serverTimestamp(),
+        'isActive': true,
+        'memberCount': 1,
+      });
+      
+      // Add creator to trio subcollection as admin
+      await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(communityRef.id)
+          .collection('trio')
+          .add({
+        'userId': data['createdBy'],
+        'username': data['createdByName'],
+        'role': 'admin',
+        'status': 'active',
+        'joinedAt': FieldValue.serverTimestamp(),
+      });
+      
+      // Mark request as processed
+      await doc.reference.update({
+        'processed': true,
+        'communityId': communityRef.id,
+        'processedAt': FieldValue.serverTimestamp(),
+      });
+      
+      // Refresh community status for current user
+      await _checkCommunityStatus();
+      
+    } catch (e) {
+      print('Error creating community from request: $e');
+    }
+  }
+
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
     username = widget.username;
     uid = widget.uid;
+    email = widget.email;
 
     String? cachedFirstName = prefs.getString('firstName');
     String? cachedLastName = prefs.getString('lastName');
-    String? cachedAddress = prefs.getString('address');
 
-    if (cachedFirstName != null && cachedLastName != null && cachedAddress != null) {
+    if (cachedFirstName != null && cachedLastName != null) {
       firstName = cachedFirstName;
       lastName = cachedLastName;
-      address = cachedAddress;
     } else {
       final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
       if (doc.exists) {
@@ -72,18 +146,80 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
         firstName = (data['firstName'] != null && data['firstName'].toString().trim().isNotEmpty)
             ? data['firstName'] : 'User';
         lastName = data['lastName'] ?? '';
-        address = data['address'] ?? 'Location not set';
 
         await prefs.setString('firstName', firstName);
         await prefs.setString('lastName', lastName);
-        // await prefs.setString('address', address);
       } else {
         firstName = 'Guest';
         lastName = '';
-        address = 'Location not set';
       }
     }
+    
+    // Check community status
+    await _checkCommunityStatus();
     setState(() {});
+  }
+
+  Future<void> _checkCommunityStatus() async {
+    try {
+      // Get all communities first
+      final communitiesQuery = await FirebaseFirestore.instance
+          .collection('communities')
+          .get();
+      
+      String? foundCommunityId;
+      String? foundRole;
+      
+      // Check each community's subcollections for the user
+      for (final communityDoc in communitiesQuery.docs) {
+        final communityId = communityDoc.id;
+        
+        // Check in trio subcollection first
+        final trioQuery = await FirebaseFirestore.instance
+            .collection('communities')
+            .doc(communityId)
+            .collection('trio')
+            .where('userId', isEqualTo: uid)
+            .where('status', isEqualTo: 'active')
+            .limit(1)
+            .get();
+        
+        if (trioQuery.docs.isNotEmpty) {
+          final data = trioQuery.docs.first.data();
+          foundCommunityId = communityId;
+          foundRole = data['role'];
+          break; // Found user, exit loop
+        }
+        
+        // If not found in trio, check members subcollection
+        final membersQuery = await FirebaseFirestore.instance
+            .collection('communities')
+            .doc(communityId)
+            .collection('members')
+            .where('userId', isEqualTo: uid)
+            .where('status', isEqualTo: 'active')
+            .limit(1)
+            .get();
+        
+        if (membersQuery.docs.isNotEmpty) {
+          final data = membersQuery.docs.first.data();
+          foundCommunityId = communityId;
+          foundRole = data['role'];
+          break; // Found user, exit loop
+        }
+      }
+      
+      // Update the global variables
+      userCommunityId = foundCommunityId;
+      userCommunityRole = foundRole;
+      
+    } catch (e) {
+      print('Error checking community status: $e');
+    }
+    
+    setState(() {
+      isLoadingCommunity = false;
+    });
   }
 
   void _startSearchScrollLoop() {
@@ -269,221 +405,118 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     );
   }
 
-  Future<List<String>> fetchSlideImages() async {
-    List<String> images = [];
-    for (int i = 1; i <= 6; i++) {
-      final doc = await FirebaseFirestore.instance.collection('sponsors').doc('slide $i').get();
-      if (doc.exists && doc.data()?['image'] != null) {
-        images.add(doc['image']);
-      }
-    }
-    return images;
+  Widget _buildGradientBackground() {
+    return Container(
+      height: MediaQuery.of(context).size.height,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF2A1810).withOpacity(0.9),
+            const Color(0xFF3D2914).withOpacity(0.7),
+            const Color(0xFF4A3218).withOpacity(0.5),
+            Colors.black,
+          ],
+          stops: const [0.0, 0.3, 0.6, 1.0],
+        ),
+      ),
+    );
   }
 
- Widget _buildGradientBackground() {
-  return Container(
-    height: 820,
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          const Color(0xFF2A1810).withOpacity(0.9),
-          const Color(0xFF3D2914).withOpacity(0.7),
-          const Color(0xFF4A3218).withOpacity(0.5),
-          Colors.black,
-        ],
-        stops: const [0.0, 0.3, 0.6, 1.0],
-      ),
-    ),
-  );
-}
-
-Widget _buildSectionHeader(String text) {
-  return Container(
-    margin: const EdgeInsets.symmetric(vertical: 16),
-    child: Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [
-                Color(0xFF1F1509),
-                Color(0xFF332414),
-                Color(0xFF473420),
-                Color(0xFF5C432C),
+  // Community Creation Widget
+  Widget _buildCommunitySelectionWithCreate() {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          CommunitySelectionWidget(
+            userId: uid,
+            username: username,
+            onCommunityJoined: _checkCommunityStatus,
+          ),
+          const SizedBox(height: 20),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFFF7B42C).withOpacity(0.1),
+                  const Color(0xFFFFE066).withOpacity(0.05),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFFF7B42C).withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.add_circle_outline,
+                  color: const Color(0xFFF7B42C),
+                  size: 40,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Create Your Own Community',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Start a new community and invite others to join',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CreateCommunityScreen(
+                          userId: uid,
+                          firstName: firstName,
+                          lastName: lastName,
+                          username: username,
+                          email: email,
+                        ),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF7B42C),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: Text(
+                    'Create Community',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
               ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              stops: [0.0, 0.3, 0.7, 1.0],
-            ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: Color(0xFFFFD700).withOpacity(0.5),
-              width: 1.2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Color(0xFFFFD700).withOpacity(0.25),
-                blurRadius: 12,
-                offset: Offset(0, 3),
-              ),
-              BoxShadow(
-                color: Color(0xFFDBA901).withOpacity(0.15),
-                blurRadius: 20,
-                spreadRadius: 1,
-                offset: Offset(0, 1),
-              ),
-            ],
-          ),
-          child: Text(
-            text,
-            style: GoogleFonts.poppins(
-              fontSize: 14,
-              letterSpacing: 1.5,
-              color: Color(0xFFDAA520),
-              fontWeight: FontWeight.w600,
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
-Widget _buildDot(double size) {
-  return Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFFFF8008), Color(0xFFFFA726)],
-      ),
-      shape: BoxShape.circle,
-      boxShadow: [
-        BoxShadow(
-          color: const Color(0xFFFF8008).withOpacity(0.4),
-          blurRadius: 4,
-        ),
-      ],
-    ),
-  );
-}
-Widget _buildEnhancedTabBar() {
-  return Container(
-    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-    padding: const EdgeInsets.all(4),
-    decoration: BoxDecoration(
-      // Darker, richer background for better contrast with gold
-      color: const Color(0xFF1A1A1A),
-      borderRadius: BorderRadius.circular(22),
-      boxShadow: [
-        // Outer shadow (dark)
-        BoxShadow(
-          color: Colors.black.withOpacity(0.4),
-          blurRadius: 15,
-          offset: const Offset(8, 8),
-        ),
-        // Outer highlight (light)
-        BoxShadow(
-          color: const Color(0xFF333333).withOpacity(0.8),
-          blurRadius: 15,
-          offset: const Offset(-8, -8),
-        ),
-      ],
-    ),
-    child: TabBar(
-      dividerColor: Colors.transparent,
-      isScrollable: true,
-      padding: EdgeInsets.zero,
-      indicatorSize: TabBarIndicatorSize.label,
-      indicatorPadding: const EdgeInsets.all(2),
-      labelPadding: const EdgeInsets.symmetric(horizontal: 12),
-      tabAlignment: TabAlignment.start,
-      indicator: BoxDecoration(
-        // Golden gradient background
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFFFD700), // Gold
-            Color(0xFFB8860B), // Dark goldenrod
-            Color(0xFFDAA520), // Goldenrod
-            Color(0xFFFFD700), // Gold
-          ],
-          stops: [0.0, 0.3, 0.7, 1.0],
-        ),
-        borderRadius: BorderRadius.circular(25), // Increased border radius
-        boxShadow: [
-          // Very soft outer golden glow - largest
-          BoxShadow(
-            color: const Color(0xFFFFD700).withOpacity(0.08),
-            blurRadius: 40,
-            offset: const Offset(0, 0),
-            spreadRadius: -5,
-          ),
-          // Medium golden glow
-          BoxShadow(
-            color: const Color(0xFFDAA520).withOpacity(0.12),
-            blurRadius: 25,
-            offset: const Offset(0, 0),
-            spreadRadius: -3,
-          ),
-          // Inner golden glow
-          BoxShadow(
-            color: const Color(0xFFFFD700).withOpacity(0.15),
-            blurRadius: 15,
-            offset: const Offset(0, 0),
-            spreadRadius: -2,
-          ),
-          // Subtle depth shadow
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(1, 1),
-            spreadRadius: -1,
-          ),
+          const SizedBox(height: 20),
         ],
       ),
-      labelColor: Colors.black, // Dark text for golden background
-      unselectedLabelColor: const Color(0xFF9E9E9E),
-      labelStyle: GoogleFonts.poppins(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 1,
-      ),
-      unselectedLabelStyle: GoogleFonts.poppins(
-        fontSize: 12,
-        fontWeight: FontWeight.w500,
-        letterSpacing: 0.8,
-      ),
-      overlayColor: WidgetStateProperty.all(Colors.transparent),
-      splashFactory: NoSplash.splashFactory,
-      tabs: [
-        _buildTab('for you'),
-        _buildTab('cafe'),
-        _buildTab('sports'),
-        _buildTab('games'),
-        _buildTab('spaces'),
-        _buildTab('more'),
-      ],
-    ),
-  );
-}
-
-Widget _buildTab(String text) {
-  return Tab(
-    child: Container(
-      // Fixed width for consistent background sizing
-      width: 80,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-      ),
-    ),
-  );
-}
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -550,17 +583,17 @@ Widget _buildTab(String text) {
                                           ),
                                         ),
                                         ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            colors: [Color(0xFFF9B233), Color(0xFFFF8008), Color(0xFFB95E00)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ).createShader(bounds),
-          blendMode: BlendMode.srcIn,
-          child: Text(
-            'blynt',
-            style: GoogleFonts.poppins(fontSize: 25, fontWeight: FontWeight.w600),
-          ),
-        ),
+                                          shaderCallback: (bounds) => const LinearGradient(
+                                            colors: [Color(0xFFF9B233), Color(0xFFFF8008), Color(0xFFB95E00)],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          ).createShader(bounds),
+                                          blendMode: BlendMode.srcIn,
+                                          child: Text(
+                                            'blynt',
+                                            style: GoogleFonts.poppins(fontSize: 25, fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
                                         const SizedBox(width: 50),
                                       ],
                                     ),
@@ -574,89 +607,23 @@ Widget _buildTab(String text) {
                                     },
                                     child: AbsorbPointer(child: buildSearchBar()),
                                   ),
-                                  const SizedBox(height: 12),
+                                  const SizedBox(height: 20),
+                                  // COMMUNITY CONTENT WITH CREATE OPTION
                                   Expanded(
-                                    child: SingleChildScrollView(
-                                      physics: const BouncingScrollPhysics(),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          const SizedBox(height: 10),
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                                            child: Row(
-                                              children: [
-                                                Container(
-                                                  padding: const EdgeInsets.all(4),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(0xFFF7B42C).withOpacity(0.2),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                  ),
-                                                  child: const Icon(Icons.location_on_rounded,
-                                                      color: Color(0xFFF7B42C), size: 18),
-                                                ),
-                                                const SizedBox(width: 10),
-                                                Expanded(
-                                                  child: Text(
-                                                    address ?? "Fetching location...",
-                                                    style: GoogleFonts.poppins(
-                                                      fontSize: 15,
-                                                      color: Colors.white,
-                                                      fontWeight: FontWeight.w500,
-                                                      letterSpacing: 0.3,
-                                                    ),
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
+                                    child: isLoadingCommunity 
+                                      ? const Center(
+                                          child: CircularProgressIndicator(
+                                            color: Color(0xFFF7B42C),
                                           ),
-                                          Center(child: _buildSectionHeader('FEATURED', ),),
-                                          const SizedBox(height: 10),
-                                          FutureBuilder<List<String>>(
-                                            future: fetchSlideImages(),
-                                            builder: (context, snapshot) {
-                                              if (!snapshot.hasData) {
-                                                return SizedBox(
-                                                  height: 220,
-                                                  child: Center(
-                                                    child: CircularProgressIndicator(color: Color(0xFFF7B42C)),
-                                                  ),
-                                                );
-                                              }
-                                              return CarouselSliderWidget(imageUrl: snapshot.data!);
-                                            },
-                                          ),
-                                          const SizedBox(height: 50),
-                                          Center(
-                                            child: Center(child: _buildSectionHeader('ALL VENUES', ),),
-                                          ),
-                                          const SizedBox(height: 25),
-                                          DefaultTabController(
-                                            length: 6,
-                                            child: Column(
-                                              children: [
-                                                _buildEnhancedTabBar(),
-                                                const SizedBox(height: 25),
-                                                SizedBox(
-                                                  height: 400,
-                                                  child: TabBarView(
-                                                    children: [
-                                                      ForYouTab(),
-                                                      CategoryTabContent(category: 'cafe'),
-                                                      CategoryTabContent(category: 'sports'),
-                                                      CategoryTabContent(category: 'games'),
-                                                      CategoryTabContent(category: 'spaces'),
-                                                      CategoryTabContent(category: 'cafes'),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
+                                        )
+                                      : userCommunityId != null 
+                                        ? CommunityDashboard(
+                                            communityId: userCommunityId!,
+                                            userRole: userCommunityRole!,
+                                            userId: uid,
+                                            onRefresh: _checkCommunityStatus,
+                                          )
+                                        : _buildCommunitySelectionWithCreate(),
                                   ),
                                 ],
                               ),
@@ -671,263 +638,6 @@ Widget _buildTab(String text) {
             },
           ),
         ],
-      ),
-    );
-  }
-}
-
-class EnhancedSemiCirclePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(0, -0.5),
-        radius: 1.5,
-        colors: [
-          const Color(0xFF2A1810).withOpacity(0.8),
-          const Color(0xFF3D2914).withOpacity(0.6),
-          const Color(0xFF4A3218).withOpacity(0.3),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.4, 0.7, 1.0],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..style = PaintingStyle.fill;
-      
-    final path = Path();
-    path.moveTo(0, 0);
-    path.lineTo(size.width, 0);
-    path.lineTo(size.width, size.height * 0.75);
-    
-    path.quadraticBezierTo(
-      size.width * 0.75, size.height * 1.1,
-      size.width / 2, size.height * 0.9
-    );
-    
-    path.quadraticBezierTo(
-      size.width * 0.25, size.height * 0.7,
-      0, size.height * 0.75
-    );
-    
-    path.close();
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-// Carousel widget with enhanced styling
-class CarouselSliderWidget extends StatefulWidget {
-  final List<String> imageUrl;
-  const CarouselSliderWidget({super.key, required this.imageUrl});
-
-  @override
-  State<CarouselSliderWidget> createState() => _CarouselSliderWidgetState();
-}
-
-class _CarouselSliderWidgetState extends State<CarouselSliderWidget> {
-  late PageController _pageController;
-  int _currentPage = 1;
-  Timer? _timer;
-  List<Map<String, String>> slides = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController(viewportFraction: 0.8, initialPage: 1);
-    fetchSlidesFromFirestore();
-  }
-
-  Future<void> fetchSlidesFromFirestore() async {
-    List<Map<String, String>> fetchedSlides = [];
-    for (int i = 1; i <= 6; i++) {
-      final doc = await FirebaseFirestore.instance.collection('sponsors').doc('slide $i').get();
-      if (doc.exists) {
-        final data = doc.data()!;
-        final image = data['image'] ?? '';
-        final title = data['title'] ?? 'Place $i';
-        final tag = data['tag'] ?? 'Featured';
-
-        if (image.isNotEmpty) {
-          fetchedSlides.add({'image': image, 'title': title, 'tag': tag});
-        }
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        slides = [fetchedSlides.last, ...fetchedSlides, fetchedSlides.first];
-      });
-      _startAutoScroll();
-    }
-  }
-
-  void _startAutoScroll() {
-    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (_pageController.hasClients && slides.length > 2) {
-        int nextPage = _currentPage + 1;
-        _pageController.animateToPage(
-          nextPage,
-          duration: const Duration(milliseconds: 900),
-          curve: Curves.easeInOutCubic,
-        );
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  LinearGradient _getTagGradient(String tag) {
-    switch (tag.toLowerCase()) {
-      case 'trending':
-        return const LinearGradient(colors: [Colors.red, Color(0xFFA61D13)]);
-      case 'highly visited':
-        return const LinearGradient(colors: [Color(0xFFF36721), Color(0xFFB56A3F)]);
-      case 'our choice':
-        return const LinearGradient(colors: [Colors.green, Colors.teal]);
-      case 'hot pick':
-        return const LinearGradient(colors: [Colors.orange, Colors.yellow]);
-      case 'new':
-        return const LinearGradient(colors: [Colors.pink, Colors.redAccent]);
-      case 'on the top':
-        return const LinearGradient(colors: [Colors.purple, Colors.deepPurple]);
-      default:
-        return const LinearGradient(colors: [Color(0xFFF7B42C), Color(0xFFFFD700)]);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (slides.length <= 2) {
-      return const SizedBox(
-        height: 300,
-        child: Center(child: CircularProgressIndicator(color: Color(0xFFF7B42C))),
-      );
-    }
-
-    return SizedBox(
-      height: 320,
-      child: PageView.builder(
-        controller: _pageController,
-        itemCount: slides.length,
-        onPageChanged: (index) {
-          setState(() => _currentPage = index);
-          if (index == slides.length - 1) {
-            Future.delayed(const Duration(milliseconds: 300), () {
-              _pageController.jumpToPage(1);
-              setState(() => _currentPage = 1);
-            });
-          } else if (index == 0) {
-            Future.delayed(const Duration(milliseconds: 300), () {
-              _pageController.jumpToPage(slides.length - 2);
-              setState(() => _currentPage = slides.length - 2);
-            });
-          }
-        },
-        itemBuilder: (context, index) {
-          final slide = slides[index];
-          final imageUrl = slide['image']!;
-          final title = slide['title']!;
-          final tag = slide['tag']!;
-          final isCenter = index == _currentPage;
-
-          return AnimatedOpacity(
-            duration: const Duration(milliseconds: 400),
-            opacity: isCenter ? 1.0 : 0.5,
-            child: Transform.scale(
-              scale: isCenter ? 1.0 : 0.9,
-              child: _buildCard(imageUrl, title, tag),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildCard(String imageUrl, String title, String tag) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 500),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF3B2F2F), Color(0xFF1E1A18)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          border: Border.all(
-            color: Colors.amber,
-            width: 1.6,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.amberAccent,
-              blurRadius: 8,
-              spreadRadius: 1,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                  child: Image.network(
-                    imageUrl,
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                        Container(height: 180, color: Colors.grey[900]),
-                  ),
-                ),
-                Positioned(
-                  top: 10,
-                  left: 10,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      gradient: _getTagGradient(tag),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      tag.toUpperCase(),
-                      style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                        letterSpacing: 1.1,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
       ),
     );
   }

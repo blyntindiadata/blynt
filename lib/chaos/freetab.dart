@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:startup/chaos/Word_Ladder_Easy.dart';
 import 'package:startup/chaos/finalword.dart';
+import 'package:startup/chaos/gamewrapper.dart';
 import 'package:startup/chaos/puzzle.dart';
 import 'package:startup/chaos/timer.dart';
+import 'package:startup/chaos/tries_manager.dart';
 import 'package:startup/chaos/word_ladder.dart';
 import 'package:startup/chaos/word_ladder_final.dart';
 // import 'package:your_app_path/tap_to_win.dart'; // Replace with actual path
@@ -20,7 +22,7 @@ class _FreeGamesTabState extends State<FreeGamesTab> {
   final PageController _pageController = PageController();
   int selectedGameIndex = 0;
 
-  final List<String> gameNames = ["Tap To Win", "Word Ladder", "Coming Soon"];
+  final List<String> gameNames = ["Tap To Win", "Word Ladder", "The Puzzle"];
 
   void _changeGame(int index) {
     setState(() => selectedGameIndex = index);
@@ -79,17 +81,20 @@ class _FreeGamesTabState extends State<FreeGamesTab> {
               ),
             ),
           ),
+   
+
           const SizedBox(height: 20),
           Expanded(
             child: PageView(
               controller: _pageController,
               onPageChanged: (index) =>
                   setState(() => selectedGameIndex = index),
-              children: [
-                const TapToWin(), // Game 1
-                WordLadderAppFinal(), // Game 2
-                const StackTheCodeGame(), // Game 3 placeholder
-              ],
+             children: [
+  GameWrapper(child: const TapToWin()),
+  GameWrapper(child: WordLadderAppFinal()),
+  GameWrapper(child: const StackTheCodeGame()),
+],
+
             ),
           ),
         ],

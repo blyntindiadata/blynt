@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:startup/chaos/Word_Ladder_Easy.dart';
 import 'package:startup/chaos/finalword.dart';
@@ -110,87 +111,94 @@ class TenderTabsScreen extends StatelessWidget {
 }
 
 // ✅ REPLACED: Real FreeGamesTab
-class FreeGamesTab extends StatefulWidget {
+class FreeGamesTab extends StatelessWidget {
   const FreeGamesTab({super.key});
 
   @override
-  State<FreeGamesTab> createState() => _FreeGamesTabState();
-}
-
-class _FreeGamesTabState extends State<FreeGamesTab> {
-  final PageController _pageController = PageController();
-  int selectedGameIndex = 0;
-
-  final List<String> gameNames = ["Tap To Win", "Word Ladder", "Coming Soon"];
-
-  void _changeGame(int index) {
-    setState(() => selectedGameIndex = index);
-    _pageController.animateToPage(index,
-        duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
-  }
-
-  Widget _buildGameChip(int index, String label) {
-    final isSelected = index == selectedGameIndex;
-    return GestureDetector(
-      onTap: () => _changeGame(index),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          gradient: isSelected
-              ? const LinearGradient(
-                  colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
-                )
-              : null,
-          color: isSelected ? null : Colors.white10,
-          borderRadius: BorderRadius.circular(24),
-          border: isSelected
-              ? null
-              : Border.all(color: Colors.amber.withOpacity(0.4)),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.poppins(
-            color: isSelected ? Colors.black : Colors.amber,
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const SizedBox(height: 24),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: List.generate(
-              gameNames.length,
-              (index) => Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: _buildGameChip(index, gameNames[index]),
+    return DefaultTabController(
+      length: 3,
+      child: Column(
+        children: [
+          const SizedBox(height: 24),
+          
+          // Tab selector with same styling as TenderTabsScreen
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Container(
+              height: 45,
+              decoration: BoxDecoration(
+                color: const Color(0xFF121212),
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.8),
+                    offset: const Offset(4, 4),
+                    blurRadius: 8,
+                  ),
+                  BoxShadow(
+                    color: Colors.white.withOpacity(0.05),
+                    offset: const Offset(-2, -2),
+                    blurRadius: 6,
+                  ),
+                ],
+              ),
+              child: TabBar(
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFFD700), Color(0xFFFFA000)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.amberAccent.withOpacity(0.6),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                dividerColor: Colors.transparent,
+                labelColor: Colors.black87,
+                unselectedLabelColor: const Color.fromARGB(255, 161, 157, 145),
+                labelStyle: GoogleFonts.poppins(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
+                unselectedLabelStyle: GoogleFonts.poppins(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.3,
+                ),
+                splashFactory: NoSplash.splashFactory,
+                overlayColor: MaterialStateProperty.all(Colors.transparent),
+                tabs: const [
+                  Tab(child: Center(child: Text("THE TIMER"))),
+                  Tab(child: Center(child: Text("THE LADDER"))),
+                  Tab(child: Center(child: Text("THE PUZZLE"))),
+                ],
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 20),
-        Expanded(
-          child: PageView(
-            controller: _pageController,
-            onPageChanged: (index) => setState(() => selectedGameIndex = index),
-            children: [
-              const TapToWin(),
-              WordLadderAppFinal(),
-              const StackTheCodeGame(),
-            ],
+          
+          const SizedBox(height: 20),
+          
+          // TabBarView with smooth transitions
+          const Expanded(
+            child: TabBarView(
+              physics: BouncingScrollPhysics(),
+              children: [
+                TapToWin(),
+                WordLadderAppFinal(),
+                StackTheCodeGame(),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

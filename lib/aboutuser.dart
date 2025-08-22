@@ -388,7 +388,7 @@ class _AboutuserState extends State<Aboutuser> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (_) => LocationMapPage(
+                builder: (_) => Home(
                   uid: widget.uid,
                   email: widget.email,
                   username: username,

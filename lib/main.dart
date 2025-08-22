@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-
 import 'firebase_options.dart';
 import 'aboutuser.dart';
 import 'phone_mail.dart';
@@ -13,6 +12,7 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  
   runApp(MyApp2());
 }
 
@@ -72,6 +72,7 @@ class AuthGate extends StatelessWidget {
                 username: username,
                 firstName: firstName,
                 lastName: lastName,
+                email: user.email??'',
               );
             } else {
               return Aboutuser(

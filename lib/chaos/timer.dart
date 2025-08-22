@@ -3,6 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 
+import 'package:startup/chaos/tries_manager.dart';
+
 void main() {
   runApp(const MaterialApp(
     home: TapToWin(),
@@ -90,23 +92,35 @@ Future<void> _markPlayedNow() async {
   //   await prefs.setInt('lastPlayedTapToWin', DateTime.now().millisecondsSinceEpoch);
   // }
 
-  void _start() {
-    _stopwatch.reset();
-    _stopwatch.start();
-    _gameStarted = true;
-    _gameEnded = false;
+ void _start() async {
+  // Check global tries first
+  final canPlay = await GameTriesManager.incrementTry();
 
+  if (!canPlay) {
     setState(() {
-      _message = "⏱ Timer started... Tap Stop when you're ready!";
+      _message = "❌ You've used all 5 global tries!";
     });
-
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
-      setState(() {
-        _elapsedSeconds = _stopwatch.elapsedMicroseconds / 1000000.0;
-      });
-    });
+    return;
   }
+
+  // Proceed if allowed
+  _stopwatch.reset();
+  _stopwatch.start();
+  _gameStarted = true;
+  _gameEnded = false;
+
+  setState(() {
+    _message = "⏱ Timer started... Tap Stop when you're ready!";
+  });
+
+  _timer?.cancel();
+  _timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+    setState(() {
+      _elapsedSeconds = _stopwatch.elapsedMicroseconds / 1000000.0;
+    });
+  });
+}
+
 
   void _stop() {
     _stopwatch.stop();
@@ -421,8 +435,30 @@ Widget _ruleItem(String text) {
                 const SizedBox(height: 30),
                 _animatedMessage(),
                 const SizedBox(height: 35),
-                if (!_playedThisWeek && !_gameStarted && !_gameEnded)
-                  _glowingGradientButton("Start", _start),
+               if (!_playedThisWeek && !_gameStarted && !_gameEnded)
+  FutureBuilder<int>(
+    future: GameTriesManager.getCurrentTries(),
+    builder: (context, snapshot) {
+      final triesUsed = snapshot.data ?? 0;
+      final canPlay = triesUsed < 5;
+      return _glowingGradientButton(
+        "Start",
+        canPlay ? _start : null,  // disables button
+      );
+    },
+  ),
+
+                         FutureBuilder<int>(
+  future: GameTriesManager.getCurrentTries(),
+  builder: (context, snapshot) {
+    final remaining = 5 - (snapshot.data ?? 0);
+    return Text(
+      "Tries Left: $remaining",
+      
+      style: TextStyle(color: Colors.amber, fontSize: 16),
+    );
+  },
+),
                 if (_gameStarted && !_gameEnded)
                   _glowingGradientButton("Stop", _stop, isRed: true),
                 if (_playedThisWeek && _gameEnded)

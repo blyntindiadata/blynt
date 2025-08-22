@@ -46,11 +46,19 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 
+	<!-- EXISTING PERMISSION -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>We need your location to show your position on the map.</string>
+	
+	<!-- ADD THESE CRITICAL PERMISSIONS FOR MEME APP -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs access to your photo library to select images for memes</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access to take photos for memes</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This app needs permission to save images to your photo library</string>
+	
 	<key>io.flutter.embedded_views_preview</key>
-
-
-<true/>
+	<true/>
 </dict>
 </plist>
