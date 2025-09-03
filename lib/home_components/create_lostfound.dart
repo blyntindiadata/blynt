@@ -291,16 +291,16 @@ Future<void> _createItem() async {
   
   return Container(
     padding: EdgeInsets.all(isTablet ? 24 : 20),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Colors.brown.shade900.withOpacity(0.3),
-          Colors.transparent,
-        ],
-      ),
-    ),
+    // decoration: BoxDecoration(
+    //   gradient: LinearGradient(
+    //     begin: Alignment.topLeft,
+    //     end: Alignment.bottomRight,
+    //     colors: [
+    //       Colors.brown.shade900.withOpacity(0.3),
+    //       Colors.transparent,
+    //     ],
+    //   ),
+    // ),
     child: Row(
       children: [
          GestureDetector(

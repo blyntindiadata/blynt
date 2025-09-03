@@ -461,16 +461,16 @@ class _BarterSystemPageState extends State<BarterSystemPage> with TickerProvider
         isTablet ? 32 : 20, 
         isTablet ? 20 : 16
       ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.green.shade900.withOpacity(0.3),
-            Colors.transparent,
-          ],
-        ),
-      ),
+      // decoration: BoxDecoration(
+      //   gradient: LinearGradient(
+      //     begin: Alignment.topLeft,
+      //     end: Alignment.bottomRight,
+      //     colors: [
+      //       Colors.green.shade900.withOpacity(0.3),
+      //       Colors.transparent,
+      //     ],
+      //   ),
+      // ),
       child: Column(
         children: [
           Row(
@@ -548,7 +548,7 @@ class _BarterSystemPageState extends State<BarterSystemPage> with TickerProvider
                       ),
                     ),
                     Text(
-                      'trade skills, not drugs',
+                      'back to the ancient times',
                       style: GoogleFonts.poppins(
                         fontSize: isTablet ? 14 : 12,
                         color: Colors.green.shade200,
@@ -606,7 +606,7 @@ class _BarterSystemPageState extends State<BarterSystemPage> with TickerProvider
           fontSize: isTablet ? 16 : 14
         ),
         decoration: InputDecoration(
-          hintText: 'Search barters...',
+          hintText: 'search...',
           hintStyle: GoogleFonts.poppins(color: Colors.white38),
           prefixIcon: Icon(
             Icons.search, 
@@ -697,35 +697,69 @@ class _BarterSystemPageState extends State<BarterSystemPage> with TickerProvider
   }
 
   Widget _buildEmptyState(bool isTablet) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.swap_horiz, 
-            color: Colors.green.shade300, 
-            size: isTablet ? 80 : 64
-          ),
-          SizedBox(height: isTablet ? 20 : 16),
-          Text(
-            'No barters available',
-            style: GoogleFonts.poppins(
-              fontSize: isTablet ? 22 : 18,
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+      final availableHeight = constraints.maxHeight;
+      
+      // Adaptive sizing for landscape mode
+      final iconSize = isLandscape 
+          ? (isTablet ? 48.0 : 40.0)
+          : (isTablet ? 80.0 : 64.0);
+      final spacing = isLandscape 
+          ? (isTablet ? 12.0 : 10.0) 
+          : (isTablet ? 20.0 : 16.0);
+      final titleSize = isLandscape 
+          ? (isTablet ? 18.0 : 16.0) 
+          : (isTablet ? 22.0 : 18.0);
+      final subtitleSize = isLandscape 
+          ? (isTablet ? 12.0 : 10.0) 
+          : (isTablet ? 16.0 : 14.0);
+      
+      return Center(
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: availableHeight > 200 ? 150 : availableHeight * 0.8,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.swap_horiz, 
+                  color: Colors.green.shade300, 
+                  size: iconSize
+                ),
+                SizedBox(height: spacing),
+                Text(
+                  'No barters available',
+                  style: GoogleFonts.poppins(
+                    fontSize: titleSize,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: spacing / 2),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: isTablet ? 24 : 16),
+                  child: Text(
+                    'Be the first to create a barter!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: subtitleSize, 
+                      color: Colors.white60
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          Text(
-            'Be the first to create a barter!',
-            style: GoogleFonts.poppins(
-              fontSize: isTablet ? 16 : 14, 
-              color: Colors.white60
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildCreateFAB(bool isTablet) {
     return Container(
@@ -1538,4 +1572,88 @@ class BarterCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String getDisplayName(Map<String, dynamic>? userData) {
+  if (userData == null) return 'Unknown User';
+  
+  final bool isDeleted = userData['accountDeleted'] == true;
+  if (isDeleted) return 'Deleted Account';
+  
+  final firstName = userData['firstName'] ?? '';
+  final lastName = userData['lastName'] ?? '';
+  
+  if (firstName.isEmpty && lastName.isEmpty) return 'Unknown User';
+  return '$firstName $lastName'.trim();
+}
+
+String getDisplayUsername(Map<String, dynamic>? userData) {
+  if (userData == null) return 'unknown';
+  
+  final bool isDeleted = userData['accountDeleted'] == true;
+  if (isDeleted) return 'deleted_account';
+  
+  return userData['username'] ?? 'unknown';
+}
+
+Widget buildUserAvatar(Map<String, dynamic>? userData, {double size = 40}) {
+  final bool isDeleted = userData?['accountDeleted'] == true;
+  
+  if (isDeleted) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade600,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        Icons.person_off,
+        color: Colors.white,
+        size: size * 0.5,
+      ),
+    );
+  }
+  
+  // Your existing avatar logic
+  final profileUrl = userData?['profileImageUrl'];
+  final name = getDisplayName(userData);
+  final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+  
+  return Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      border: Border.all(color: const Color(0xFFF7B42C), width: 1),
+    ),
+    child: profileUrl != null
+        ? ClipOval(
+            child: Image.network(
+              profileUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => _buildInitialAvatar(initial, size),
+            ),
+          )
+        : _buildInitialAvatar(initial, size),
+  );
+}
+
+Widget _buildInitialAvatar(String initial, double size) {
+  return Container(
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(colors: [Color(0xFFF7B42C), Color(0xFFFFD700)]),
+      shape: BoxShape.circle,
+    ),
+    child: Center(
+      child: Text(
+        initial,
+        style: GoogleFonts.poppins(
+          color: Colors.black87,
+          fontWeight: FontWeight.w600,
+          fontSize: size * 0.4,
+        ),
+      ),
+    ),
+  );
 }

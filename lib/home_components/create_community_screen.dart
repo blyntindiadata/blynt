@@ -1192,14 +1192,21 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                     ),
                     const SizedBox(width: 16),
                     Expanded(
-                      child: Text(
-                        'Create Community',
-                        style: GoogleFonts.poppins(
-                          fontSize: MediaQuery.of(context).size.width * 0.06,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
+                      child: ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFFF9B233), Color(0xFFFF8008), Color(0xFFB95E00)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(bounds),
+              blendMode: BlendMode.srcIn,
+              child: Text(
+                'create community',
+                style: GoogleFonts.poppins(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
                     ),
                   ],
                 ),
@@ -1358,7 +1365,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                                       ),
                                     )
                                   : Text(
-                                      'Submit Request',
+                                      'SUBMIT REQUEST',
                                       style: GoogleFonts.poppins(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w600,

@@ -344,16 +344,16 @@ Widget build(BuildContext context) {
       ScreenUtil.responsiveWidth(context, 0.05),
       16,
     ),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                const Color(0xFF1B263B).withOpacity(0.3),
-                Colors.transparent,
-              ],
-            ),
-          ),
+          // decoration: BoxDecoration(
+          //   gradient: LinearGradient(
+          //     begin: Alignment.topLeft,
+          //     end: Alignment.bottomRight,
+          //     colors: [
+          //       const Color(0xFF1B263B).withOpacity(0.3),
+          //       Colors.transparent,
+          //     ],
+          //   ),
+          // ),
           child: Row(
             children: [
               GestureDetector(
@@ -410,7 +410,7 @@ Widget build(BuildContext context) {
                         colors: [const Color(0xFFF59E0B), const Color(0xFFD97706)],
                       ).createShader(bounds),
                       child: Text(
-                        'shit i wish i knew',
+                        'sh*t i wish i knew',
                         style: GoogleFonts.dmSerifDisplay(
                           fontSize: isCompact ? 18 : 22,
                           fontWeight: FontWeight.bold,
@@ -420,7 +420,7 @@ Widget build(BuildContext context) {
                       ),
                     ),
                     Text(
-                      'share your wisdom',
+                      'the space to exchange thoughts & have meaningful conversations',
                       style: GoogleFonts.poppins(
                         fontSize: isCompact ? 10 : 12,
                         color: const Color(0xFFF59E0B),
@@ -472,7 +472,7 @@ Widget build(BuildContext context) {
   ),
   textAlignVertical: TextAlignVertical.center,
   decoration: InputDecoration(
-    hintText: 'Search posts...',
+    hintText: 'search...',
     hintStyle: GoogleFonts.poppins(color: Colors.white38), 
     prefixIcon: Icon(
       Icons.search, 
@@ -689,44 +689,70 @@ Widget build(BuildContext context) {
   }
 
   Widget _buildEmptyState() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 400;
-        
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.lightbulb_outline, 
-                color: const Color(0xFFF59E0B), 
-                size: isCompact ? 48 : 64
-              ),
-              SizedBox(height: isCompact ? 12 : 16),
-              Text(
-                'No posts available',
-                style: GoogleFonts.poppins(
-                  fontSize: isCompact ? 16 : 18,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final isCompact = constraints.maxWidth < 400;
+      final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+      final availableHeight = constraints.maxHeight;
+      
+      // Adaptive spacing based on available height
+      final iconSize = isLandscape 
+          ? (isCompact ? 32.0 : 40.0) 
+          : (isCompact ? 48.0 : 64.0);
+      final spacing = isLandscape 
+          ? (isCompact ? 8.0 : 12.0) 
+          : (isCompact ? 12.0 : 16.0);
+      final titleSize = isLandscape 
+          ? (isCompact ? 14.0 : 16.0) 
+          : (isCompact ? 16.0 : 18.0);
+      final subtitleSize = isLandscape 
+          ? (isCompact ? 10.0 : 12.0) 
+          : (isCompact ? 12.0 : 14.0);
+      
+      return Center(
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: availableHeight > 200 ? 150 : availableHeight * 0.8,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.lightbulb_outline, 
+                  color: const Color(0xFFF59E0B), 
+                  size: iconSize,
                 ),
-              ),
-              Center(
-                child: Text(
-                  
-                  'Share something you wish you knew earlier!',
+                SizedBox(height: spacing),
+                Text(
+                  'No posts available',
                   style: GoogleFonts.poppins(
-                    fontSize: isCompact ? 12 : 14, 
-                    color: Colors.white60
+                    fontSize: titleSize,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-            ],
+                SizedBox(height: spacing / 2),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: isCompact ? 16 : 24),
+                  child: Text(
+                    'Share something you wish you knew earlier!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: subtitleSize, 
+                      color: Colors.white60
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildCreateFAB() {
     return LayoutBuilder(
@@ -1157,6 +1183,7 @@ class _PostCardState extends State<PostCard> {
                             currentUsername: widget.currentUsername,
                             currentUserRole: widget.currentUserRole,
                             getUserData: widget.getUserData,
+                            currentUserId: widget.currentUsername,
                           ),
                         ),
                       );

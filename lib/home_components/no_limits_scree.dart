@@ -177,21 +177,20 @@ Future<void> _createNotification({
         .doc(recipientUserId)
         .collection('notifications')
         .add({
+      'type': type, // 'meme_reaction', 'meme_comment', 'comment_like', 'comment_reply'
       'title': title,
-      'body': body,
-      'type': type, // 'meme_reaction', 'comment_like', 'comment_reply'
+      'message': body, // Changed from 'body' to 'message' to match your notification structure
+      'senderName': widget.username,
+      'senderId': widget.userId,
       'memeId': memeId,
       'commentId': commentId,
-      'requesterId': widget.userId,
-      'requesterUsername': widget.username,
-      'createdAt': FieldValue.serverTimestamp(),
+      'timestamp': FieldValue.serverTimestamp(), // Changed from 'createdAt' to 'timestamp'
       'read': false,
     });
   } catch (e) {
     debugPrint('Error creating notification: $e');
   }
 }
-
 // Update the existing _updateMemeReaction method
 Future<void> _updateMemeReaction(String memeId, int value) async {
   if (value == -1) {
@@ -403,13 +402,13 @@ Future<void> _refreshMemes() async {
     // You could also clear caches here if needed
     _userCache.clear();
     
-    if (mounted) {
-      _showMessage('Refreshed successfully!');
-    }
-  } catch (e) {
-    if (mounted) {
-      _showMessage('Failed to refresh: $e', isError: true);
-    }
+  //   if (mounted) {
+  //     _showMessage('Refreshed successfully!');
+  //   }
+  // } catch (e) {
+  //   if (mounted) {
+  //     _showMessage('Failed to refresh: $e', isError: true);
+  //   }
   } finally {
     if (mounted) {
       setState(() => _isLoading = false);
@@ -490,16 +489,16 @@ void _unfocusAll() {
       MediaQuery.of(context).padding.top + 16,
       ScreenUtil.responsiveWidth(context, 0.05),
       16,),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.red.shade900.withOpacity(0.3),
-            Colors.transparent,
-          ],
-        ),
-      ),
+      // decoration: BoxDecoration(
+      //   gradient: LinearGradient(
+      //     begin: Alignment.topLeft,
+      //     end: Alignment.bottomRight,
+      //     colors: [
+      //       Colors.red.shade900.withOpacity(0.3),
+      //       Colors.transparent,
+      //     ],
+      //   ),
+      // ),
       child: Column(
         children: [
           Row(
@@ -572,10 +571,10 @@ void _unfocusAll() {
                       ),
                     ),
                     Text(
-                      'Memes that push boundaries',
+                      'you gotta be cooked if \nthis gets leaked',
                       style: GoogleFonts.poppins(
                         fontSize: ResponsiveFonts.caption(context),
-                        color: Colors.red.shade200,
+                        color: const Color.fromARGB(255, 223, 91, 91),
                       ),
                     ),
                   ],
@@ -816,7 +815,7 @@ void _unfocusAll() {
         focusNode: _searchFocusNode,
         style: GoogleFonts.poppins(color: Colors.white, fontSize: 14),
         decoration: InputDecoration(
-          hintText: 'Search memes...',
+          hintText: 'search...',
           hintStyle: GoogleFonts.poppins(color: Colors.white38),
           prefixIcon: Icon(Icons.search, color: Colors.red.shade300, size: 20),
           suffixIcon: _isSearching 
@@ -1088,20 +1087,26 @@ bool _isValidImageFormat(Uint8List bytes) {
         .doc();
 
     await memeRef.set({
-      'id': memeRef.id,
-      'imageUrl': imageUrl,
-      'caption': _captionController.text.trim(),
-      'authorId': _postAnonymously ? 'anonymous' : widget.userId,
-      'authorUsername': _postAnonymously ? 'Anonymous' : widget.username,
-      'authorFirstName': _postAnonymously ? '' : (_userProfile?['firstName'] ?? ''),
-      'authorLastName': _postAnonymously ? '' : (_userProfile?['lastName'] ?? ''),
-      'authorYear': _postAnonymously ? '' : (_userProfile?['year'] ?? ''),
-      'authorBranch': _postAnonymously ? '' : (_userProfile?['branch'] ?? ''),
-      'isAnonymous': _postAnonymously,
-      'createdAt': FieldValue.serverTimestamp(),
-      'reactions': {},
-      'commentsCount': 0,
-    });
+  'id': memeRef.id,
+  'imageUrl': imageUrl,
+  'caption': _captionController.text.trim(),
+  'authorId': _postAnonymously ? 'anonymous' : widget.userId,
+  'actualAuthorId': widget.userId, // Always store the real author ID
+  'authorUsername': _postAnonymously ? 'Anonymous' : widget.username,
+  'authorFirstName': _postAnonymously ? '' : (_userProfile?['firstName'] ?? ''),
+  'authorLastName': _postAnonymously ? '' : (_userProfile?['lastName'] ?? ''),
+  'authorYear': _postAnonymously ? '' : (_userProfile?['year'] ?? ''),
+  'authorBranch': _postAnonymously ? '' : (_userProfile?['branch'] ?? ''),
+  'isAnonymous': _postAnonymously,
+  'createdAt': FieldValue.serverTimestamp(),
+  'reactions': {},
+  'commentsCount': 0,
+});
+
+     if (!_postAnonymously) {
+    _notifyMemePosted(memeRef.id);
+  }
+
 
     // Reset form
     setState(() {
@@ -1121,6 +1126,37 @@ bool _isValidImageFormat(Uint8List bytes) {
     setState(() => _isUploading = false);
 
     _showMessage('Failed to upload meme: $e', isError: true);
+  }
+}
+
+Future<void> _notifyMemePosted(String memeId) async {
+  try {
+    // Get community members (optional - you can skip this if you don't want to spam)
+    // This is just an example - you might want to notify only followers or friends
+    final membersSnapshot = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('members')
+        .limit(50) // Limit to prevent too many notifications
+        .get();
+
+    // Create notifications for a subset of members
+    for (var memberDoc in membersSnapshot.docs.take(10)) { // Only notify first 10
+      final memberData = memberDoc.data();
+      final memberId = memberData['userId'];
+      
+      if (memberId != null && memberId != widget.userId) {
+        await _createNotification(
+          recipientUserId: memberId,
+          title: 'New meme posted',
+          body: '${widget.username} shared a new meme in No Limits',
+          type: 'meme_posted',
+          memeId: memeId,
+        );
+      }
+    }
+  } catch (e) {
+    debugPrint('Error notifying meme posted: $e');
   }
 }
 
@@ -1413,7 +1449,8 @@ void _showCommentsModal() {
     final year = meme['authorYear'] ?? '';
     final branch = meme['authorBranch'] ?? '';
     final caption = meme['caption'] ?? '';
-    final isAuthor = meme['authorId'] == widget.currentUserId;
+    final isAuthor = (widget.meme['actualAuthorId'] == widget.currentUserId) || 
+                 (widget.meme['authorId'] == widget.currentUserId);
 
     _calculateReactionCounts();
 
@@ -2443,7 +2480,7 @@ Future<void> _toggleCommentLike(String commentId, bool currentlyLiked) async {
           .collection('notifications')
           .add({
         'title': title,
-        'body': body,
+        'message': body,
         'type': type,
         'memeId': memeId,
         'commentId': commentId,
@@ -2457,79 +2494,127 @@ Future<void> _toggleCommentLike(String commentId, bool currentlyLiked) async {
     }
   }
 
-  Future<void> _postComment({String? parentId}) async {
-     final trace = FirebasePerformance.instance.newTrace('post_comment'); // ← ADD THIS
-    await trace.start(); // ← ADD THIS
-    try {
-      final text = _commentController.text.trim();
-      if (text.isEmpty) return;
+Future<void> _postComment({String? parentId}) async {
+  final trace = FirebasePerformance.instance.newTrace('post_comment');
+  await trace.start();
+  
+  try {
+    final text = _commentController.text.trim();
+    if (text.isEmpty) return;
 
-      if (!ContentFilter.isContentAppropriate(text)) {
-        final reason = ContentFilter.getFilterReason(text);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(reason, style: GoogleFonts.poppins(color: Colors.white)),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
+    // ... existing validation code ...
 
-      if (mounted) {
-        setState(() => _isPosting = true);
-      }
-
-      final collection = parentId != null
-          ? FirebaseFirestore.instance
-              .collection('communities')
-              .doc(widget.communityId)
-              .collection('memes')
-              .doc(widget.memeId)
-              .collection('comments')
-              .doc(parentId)
-              .collection('replies')
-          : FirebaseFirestore.instance
-              .collection('communities')
-              .doc(widget.communityId)
-              .collection('memes')
-              .doc(widget.memeId)
-              .collection('comments');
-
-      await collection.add({
-        'content': text,
-        'authorId': widget.userId,
-        'authorUsername': widget.username,
-        'createdAt': FieldValue.serverTimestamp(),
-        'likedBy': {},
-        'likesCount': 0,
-      });
-
-      if (parentId == null) {
-        await FirebaseFirestore.instance
+    final collection = parentId != null
+        ? FirebaseFirestore.instance
             .collection('communities')
             .doc(widget.communityId)
             .collection('memes')
             .doc(widget.memeId)
-            .update({'commentsCount': FieldValue.increment(1)});
-      }
+            .collection('comments')
+            .doc(parentId)
+            .collection('replies')
+        : FirebaseFirestore.instance
+            .collection('communities')
+            .doc(widget.communityId)
+            .collection('memes')
+            .doc(widget.memeId)
+            .collection('comments');
 
-      _commentController.clear();
-      _focusNode.unfocus(); // Dismiss keyboard after posting
+    final commentRef = await collection.add({
+      'content': text,
+      'authorId': widget.userId,
+      'authorUsername': widget.username,
+      'createdAt': FieldValue.serverTimestamp(),
+      'likedBy': {},
+      'likesCount': 0,
+    });
+
+    if (parentId == null) {
+      await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('memes')
+          .doc(widget.memeId)
+          .update({'commentsCount': FieldValue.increment(1)});
+
+      // ADD THIS: Notify meme author about new comment
+      await _notifyMemeComment(widget.memeId);
+    } else {
+      // ADD THIS: Notify parent comment author about reply
+      await _notifyCommentReply(parentId, commentRef.id);
+    }
+
+    _commentController.clear();
+    _focusNode.unfocus();
+    
+  } catch (e) {
+    // ... existing error handling ...
+  } finally {
+    if (mounted) setState(() => _isPosting = false);
+    await trace.stop();
+  }
+}
+
+// ADD THESE METHODS
+Future<void> _notifyMemeComment(String memeId) async {
+  try {
+    final memeDoc = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('memes')
+        .doc(memeId)
+        .get();
+
+    if (memeDoc.exists) {
+      final memeData = memeDoc.data() as Map<String, dynamic>;
+      final authorId = memeData['authorId'];
       
-    } catch (e) {
-       FirebaseCrashlytics.instance.recordError(e, null, // ← ADD THIS
-        information: ['Posting comment']);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to post comment: $e')),
+     if (authorId != null && authorId != widget.userId && 
+    memeData['actualAuthorId'] != widget.userId) {
+        await _createNotification(
+          recipientUserId: authorId,
+          title: 'New comment on your meme',
+          body: '${widget.username} commented on your meme',
+          type: 'meme_comment',
+          memeId: memeId,
         );
       }
-    } finally {
-      if (mounted) setState(() => _isPosting = false);
-       await trace.stop();
     }
+  } catch (e) {
+    debugPrint('Error notifying meme comment: $e');
   }
+}
 
+Future<void> _notifyCommentReply(String parentCommentId, String replyId) async {
+  try {
+    final commentDoc = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('memes')
+        .doc(widget.memeId)
+        .collection('comments')
+        .doc(parentCommentId)
+        .get();
+
+    if (commentDoc.exists) {
+      final commentData = commentDoc.data() as Map<String, dynamic>;
+      final authorId = commentData['authorId'];
+      
+      if (authorId != null && authorId != widget.userId) {
+        await _createNotification(
+          recipientUserId: authorId,
+          title: 'New reply to your comment',
+          body: '${widget.username} replied to your comment',
+          type: 'comment_reply',
+          memeId: widget.memeId,
+          commentId: parentCommentId,
+        );
+      }
+    }
+  } catch (e) {
+    debugPrint('Error notifying comment reply: $e');
+  }
+}
   void _showReplyDialog(String parentCommentId) {
     final replyController = TextEditingController();
     

@@ -2,10 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:intl_phone_field/intl_phone_field.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:startup/aboutuser.dart';
 import 'package:startup/homepage.dart';
-import 'package:startup/verify_otp.dart';
 
 class PhoneMailVerify extends StatefulWidget {
   const PhoneMailVerify({super.key});
@@ -14,52 +13,86 @@ class PhoneMailVerify extends StatefulWidget {
   State<PhoneMailVerify> createState() => PhoneMailVerifyState();
 }
 
-class PhoneMailVerifyState extends State<PhoneMailVerify> {
-  final TextEditingController phoneController = TextEditingController();
-  bool showError = false;
+class PhoneMailVerifyState extends State<PhoneMailVerify> with SingleTickerProviderStateMixin {
+  bool isLoading = false;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+  late Animation<double> _scaleAnimation;
 
-  void sendOTP() async {
-    String phoneNumber = '+91${phoneController.text.trim()}';
-
-    if (phoneController.text.trim().length == 10) {
-      setState(() => showError = false);
-
-      await FirebaseAuth.instance.verifyPhoneNumber(
-        phoneNumber: phoneNumber,
-        verificationCompleted: (PhoneAuthCredential credential) {},
-        verificationFailed: (FirebaseAuthException ex) {
-          print('Verification failed: ${ex.message}');
-        },
-        codeSent: (String verificationId, int? resendToken) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => VerifyOtp(
-                phoneNumber: phoneNumber,
-                verificationId: verificationId,
-              ),
-            ),
-          );
-        },
-        codeAutoRetrievalTimeout: (String verificationId) {},
-      );
-    } else {
-      setState(() => showError = true);
-    }
+   @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
+    ));
+    
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0.0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: const Interval(0.2, 0.8, curve: Curves.easeOutCubic),
+    ));
+    
+    _scaleAnimation = Tween<double>(
+      begin: 0.8,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: const Interval(0.4, 1.0, curve: Curves.elasticOut),
+    ));
+    
+    // Start animation
+    _animationController.forward();
   }
 
-  Future<bool> login() async{
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  Future<bool> login() async {
+  setState(() => isLoading = true);
+  
+  try {
     await GoogleSignIn().signOut();
-      final user = await GoogleSignIn().signIn();
-      GoogleSignInAuthentication userAuth = await user!.authentication;
+    final user = await GoogleSignIn().signIn();
+    
+    if (user == null) {
+      setState(() => isLoading = false);
+      return false;
+    }
+    
+    GoogleSignInAuthentication userAuth = await user.authentication;
+    var credential = GoogleAuthProvider.credential(
+      idToken: userAuth.idToken, 
+      accessToken: userAuth.accessToken
+    );
 
-      var credential = GoogleAuthProvider.credential(idToken: userAuth.idToken, accessToken: userAuth.accessToken);
-
-      FirebaseAuth.instance.signInWithCredential(credential);
-
-      return FirebaseAuth.instance.currentUser != null;
-
-      
+    await FirebaseAuth.instance.signInWithCredential(credential);
+    
+    // Add a small delay for smooth transition
+    if (FirebaseAuth.instance.currentUser != null) {
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+    
+    return FirebaseAuth.instance.currentUser != null;
+  } catch (e) {
+    setState(() => isLoading = false);
+    print('Google Sign-In failed: $e');
+    return false;
+  }
 }
 
   @override
@@ -69,203 +102,188 @@ class PhoneMailVerifyState extends State<PhoneMailVerify> {
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            backgroundColor: Colors.amber[300],
+            backgroundColor: Color(0xFFF9B233),
             expandedHeight: 220,
             pinned: true,
             flexibleSpace: FlexibleSpaceBar(
               titlePadding:
                   const EdgeInsets.symmetric(horizontal: 32, vertical: 10),
-              background: Container(color: Colors.amber[400]),
-              title: const Text(
-                'verify',
-                style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 25,
-                  fontFamily: 'DMSerif',
+              background: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFFF9B233), Color(0xFFFF8008)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+              ),
+              title: ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Color(0xFF101010), Color(0xFF222222)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ).createShader(bounds),
+                blendMode: BlendMode.srcIn,
+                child: Text(
+                  'verify',
+                  style: GoogleFonts.dmSerifDisplay(
+                    fontSize: 25,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ),
           ),
+          
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.only(top: 25),
+              padding: const EdgeInsets.only(top: 40, bottom: 20),
               child: Center(
                 child: Text(
-                  'AUTHENTICATE VIA PHONE',
-                  style: TextStyle(
-                    fontFamily: 'Poppins_Medium',
+                  'AUTHENTICATE WITH GOOGLE',
+                  style: GoogleFonts.poppins(
                     fontSize: 14,
+                    fontWeight: FontWeight.w600,
                     letterSpacing: 2.0,
-                    color: Colors.white38,
+                    color: Colors.white70,
                   ),
                 ),
               ),
             ),
           ),
+
           SliverToBoxAdapter(
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 35, vertical: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: Center(
+                child: Text(
+                  'sign in or sign up to be a part of blynt',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: Colors.white54,
+                    height: 1.5,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 30),
+              child: isLoading
+                  ? Column(
+                      children: [
+                        const CircularProgressIndicator(
+                          color: Colors.amber,
+                          strokeWidth: 3,
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'one step away from paradise',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white70,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                      ],
+                    )
+                  : GestureDetector(
+                      onTap: () async {
+                        bool success = await login();
+                        if (!success) {
+                          print('Google Sign-In cancelled or failed');
+                        }
+                        // AuthGate handles navigation on success
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 400),
+                        curve: Curves.easeInOut,
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color.fromARGB(255, 233, 202, 30), Color.fromARGB(255, 159, 98, 0)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.amberAccent.withOpacity(0.6),
+                              blurRadius: 10,
+                              spreadRadius: 0.5,
+                              offset: const Offset(0, 0),
+                            ),
+                            BoxShadow(
+                              color: Colors.amber.withOpacity(0.2),
+                              blurRadius: 4,
+                              spreadRadius: 1,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Image.asset(
+                              'icons/google.png',
+                              height: 24,
+                              width: 24,
+                            ),
+                            const SizedBox(width: 12),
+                            ShaderMask(
+                              shaderCallback: (bounds) => const LinearGradient(
+                                colors: [Color(0xFF101010), Color(0xFF222222)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ).createShader(bounds),
+                              blendMode: BlendMode.srcIn,
+                              child: Text(
+                                "SIGN IN WITH GOOGLE",
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 30),
+              child: Row(
                 children: [
-                  IntlPhoneField(
-                    controller: phoneController,
-                    cursorColor: Colors.yellowAccent,
-                    style: const TextStyle(
-                      color: Colors.yellow,
-                      fontFamily: 'Poppins_Regular',
-                      fontSize: 14,
-                    ),
-                    
-                    decoration: InputDecoration(
-                      errorStyle: TextStyle(
-                        fontFamily: 'Poppins_Regular'
-                      ),
-                      labelText: 'phone number',
-                      labelStyle: const TextStyle(
-                        fontFamily: 'Poppins_Regular',
-                        color: Colors.white38,
-                        fontSize: 11,
-                      ),
-                      focusedBorder: const OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.amber),
-                      ),
-                      fillColor: Colors.grey[900],
-                      filled: true,
-                    ),
-                    
-                    initialCountryCode: 'IN',
-                    dropdownTextStyle: const TextStyle(color: Colors.white38),
-                    onChanged: (phone) {
-                      if (phone.completeNumber.length > 0) {
-                        setState(() => showError = false);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Visibility(
-                    visible: showError,
-                    child: const Text(
-                      'please enter a valid 10-digit phone number',
-                      style: TextStyle(
-                        color: Colors.red,
-                        fontFamily: 'Poppins_Regular',
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
+                 
                 ],
               ),
             ),
           ),
+
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 10),
-              child: ElevatedButton(
-                onPressed: sendOTP,
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.amberAccent[400]),
-                child:
-                    const Text("GET OTP", style: TextStyle(color: Colors.black,
-                    fontFamily: 'Poppins_Regular',
-                    letterSpacing: 2.3)),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: Center(
+                child: Text(
+                  'by signing in, you agree to our terms of service and privacy policy',
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: Colors.white38,
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
             ),
           ),
-
-
-          SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsetsGeometry.all(40.0),
-                child: Row(
-                  children: [
-                    Expanded(child: Divider(
-                      thickness: 0.5, color: Colors.grey[400], endIndent: 8,
-                    )),
-                
-                    Text('OR', style: TextStyle(
-                      color: Colors.grey[400],
-                      letterSpacing: 1.5,
-                      fontFamily: 'Poppins_Regular'
-                    ),),
-                
-                    Expanded(child: Divider(
-                      thickness: 0.5, color: Colors.grey[400],indent: 8,
-                    )),
-                  ],
-                ),
-              ),
-          ),
-
-          // SliverToBoxAdapter(
-          //   child: Padding(
-          //     padding: const EdgeInsets.only(top: 0, bottom: 20),
-          //     child: Center(
-          //       child: Text(
-          //         'AUTHENTICATE VIA GOOGLE',
-          //         style: TextStyle(
-          //           fontFamily: 'Poppins_Medium',
-          //           fontSize: 14,
-          //           letterSpacing: 2.0,
-          //           color: Colors.white38,
-          //         ),
-          //       ),
-          //     ),
-          //   ),
-          // ),
-
-          SliverToBoxAdapter(
-  child: Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      GestureDetector(
-        onTap: () async {
-          bool? user = await login(); // Call your login function here
-          if (user == null) {
-            print('Google Sign-In cancelled or failed');
-            return;
-          }
-          // No navigation needed — AuthGate handles it
-        },
-        child: Container(
-          padding: EdgeInsets.all(20.0),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.black54),
-            borderRadius: BorderRadius.circular(16),
-            color: Colors.grey[900],
-          ),
-          child: Image.asset('icons/google.png', height: 40, width: 40,),
-        ),
-      ),
-    ],
-  ),
-),
-
-
-  //         SliverToBoxAdapter(
-  //           child: Padding(
-  //             padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 16),
-  //             child: ElevatedButton(
-  //               onPressed: () async {
-  // bool user = await login();
-  // if (user == null) {
-  //   print('Google Sign-In cancelled or failed');
-  //   return;
-  // }
-  // // NO navigation here - AuthGate will handle routing on auth state change
-  //               },
-  //               style: ElevatedButton.styleFrom(    
-  //                   backgroundColor: Colors.amberAccent[400]
-  //                   ),
-  //               child: const Text("SIGN IN WITH GOOGLE",
-  //                   style: TextStyle(color: Colors.black,
-  //                   fontFamily: 'Poppins_Regular',
-  //                   letterSpacing: 2.3
-  //                   )),
-  //             ),
-  //           ),
-  //         ),
         ],
       ),
     );

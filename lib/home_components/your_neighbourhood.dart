@@ -90,7 +90,7 @@ class _YourNeighbourhoodScreenState extends State<YourNeighbourhoodScreen> with 
           ),
         ),
       ),
-      floatingActionButton: canManageOutlets ? _buildCreateFAB() : null,
+     floatingActionButton: (canManageOutlets && ['admin', 'manager', 'moderator'].contains(widget.userRole)) ? _buildCreateFAB() : null,
     );
   }
 
@@ -101,23 +101,40 @@ class _YourNeighbourhoodScreenState extends State<YourNeighbourhoodScreen> with 
         
         return Container(
           padding: EdgeInsets.all(isCompact ? 16 : 20),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                const Color(0xFF1A2B1A).withOpacity(0.3),
-                Colors.transparent,
-              ],
-            ),
-          ),
+          // decoration: BoxDecoration(
+          //   gradient: LinearGradient(
+          //     begin: Alignment.topLeft,
+          //     end: Alignment.bottomRight,
+          //     colors: [
+          //       const Color(0xFF1A2B1A).withOpacity(0.3),
+          //       Colors.transparent,
+          //     ],
+          //   ),
+          // ),
           child: Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              ),
+             GestureDetector(
+  onTap: () => Navigator.pop(context),
+  child: Container(
+   
+    padding: EdgeInsets.all(isCompact ? 8 : 8),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: const Color(0xFF66BB6A).withOpacity(0.3),
+        width: 1,
+      ),
+    ),
+    child: Icon(
+      Icons.arrow_back_ios_new,
+      color: Colors.white,
+      size: isCompact ? 18 : 18,
+    ),
+  ),
+),
               Container(
+                 margin: EdgeInsets.only(left: 10),
                 padding: EdgeInsets.all(isCompact ? 10 : 12),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -140,14 +157,18 @@ class _YourNeighbourhoodScreenState extends State<YourNeighbourhoodScreen> with 
               ),
               const SizedBox(width: 16),
               Expanded(
+                
                 child: Column(
+                  
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    
                     ShaderMask(
                       shaderCallback: (bounds) => LinearGradient(
                         colors: [const Color(0xFF66BB6A), const Color(0xFF388E3C)],
                       ).createShader(bounds),
                       child: Text(
+                        
                         'your neighbourhood',
                         style: GoogleFonts.dmSerifDisplay(
                           fontSize: isCompact ? 20 : 24,
@@ -158,7 +179,7 @@ class _YourNeighbourhoodScreenState extends State<YourNeighbourhoodScreen> with 
                       ),
                     ),
                     Text(
-                      'discover local spots',
+                      'places where you go after bunking lectures',
                       style: GoogleFonts.poppins(
                         fontSize: isCompact ? 10 : 12,
                         color: const Color(0xFF66BB6A),
@@ -983,15 +1004,26 @@ class _OutletDialogState extends State<OutletDialog> {
                     // Header with back button
                     Row(
                       children: [
-                        IconButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 40,
-                            minHeight: 40,
-                          ),
-                        ),
+                        GestureDetector(
+  onTap: () => Navigator.pop(context),
+  child: Container(
+    padding: EdgeInsets.all(isCompact ? 8 : 8),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: const Color(0xFF66BB6A).withOpacity(0.3),
+        width: 1,
+      ),
+    ),
+    child: Icon(
+      Icons.arrow_back_ios_new,
+      color: Colors.white,
+      size: isCompact ? 18 : 18,
+    ),
+  ),
+  
+),
                         const SizedBox(width: 8),
                         Container(
                           padding: EdgeInsets.all(isCompact ? 10 : 12),
@@ -1018,7 +1050,7 @@ class _OutletDialogState extends State<OutletDialog> {
                         Expanded(
                           child: Text(
                             widget.outletId == null ? 'add new outlet' : 'edit outlet',
-                            style: GoogleFonts.dmSerifDisplay(
+                            style: GoogleFonts.poppins(
                               fontSize: isCompact ? 18 : 20,
                               fontWeight: FontWeight.w600,
                               color: Colors.white,

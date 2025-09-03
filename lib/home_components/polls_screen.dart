@@ -269,16 +269,16 @@ class _PollsPageState extends State<PollsPage> with TickerProviderStateMixin {
       isTablet ? 24 : (isCompact ? 16 : 20),
       isTablet ? 20 : (isCompact ? 12 : 16),
     ),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          const Color(0xFF1B263B).withOpacity(0.3),
-          Colors.transparent,
-        ],
-      ),
-    ),
+    // decoration: BoxDecoration(
+    //   gradient: LinearGradient(
+    //     begin: Alignment.topLeft,
+    //     end: Alignment.bottomRight,
+    //     colors: [
+    //       const Color(0xFF1B263B).withOpacity(0.3),
+    //       Colors.transparent,
+    //     ],
+    //   ),
+    // ),
     child: Column(
       children: [
         Row(
@@ -334,7 +334,7 @@ class _PollsPageState extends State<PollsPage> with TickerProviderStateMixin {
                       colors: [const Color(0xFF64B5F6), const Color(0xFF1976D2)],
                     ).createShader(bounds),
                     child: Text(
-                      'community polls',
+                      'the polls',
                       style: GoogleFonts.dmSerifDisplay(
                         fontSize: isTablet ? 28 : (isCompact ? 18 : 22),
                         fontWeight: FontWeight.bold,
@@ -344,7 +344,7 @@ class _PollsPageState extends State<PollsPage> with TickerProviderStateMixin {
                     ),
                   ),
                   Text(
-                    'voice your opinion',
+                    'mass bun- well well well',
                     style: GoogleFonts.poppins(
                       fontSize: isTablet ? 14 : (isCompact ? 10 : 12),
                       color: const Color(0xFF64B5F6),
@@ -495,73 +495,116 @@ class _PollsPageState extends State<PollsPage> with TickerProviderStateMixin {
               return _buildEmptyState(screenWidth, isTablet);
             }
 
-            return ListView.builder(
-              padding: EdgeInsets.all(isTablet ? 20 : (screenWidth < 350 ? 12 : 16)),
-              itemCount: visiblePolls.length,
-              itemBuilder: (context, index) {
-                final poll = visiblePolls[index];
-                return PollCard(
+          return LayoutBuilder(
+  builder: (context, constraints) {
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final isCompact = screenWidth < 350;
+    final padding = isLandscape 
+        ? (isTablet ? 12.0 : (isCompact ? 8.0 : 10.0))
+        : (isTablet ? 20.0 : (isCompact ? 12.0 : 16.0));
+        
+    return ListView.builder(
+      padding: EdgeInsets.all(padding),
+      itemCount: visiblePolls.length,
+      itemBuilder: (context, index) {
+        final poll = visiblePolls[index];
+        return PollCard(
+          poll: poll,
+          currentUsername: widget.username,
+          currentUserRole: widget.userRole,
+          getUserData: _getUserData,
+          communityId: widget.communityId,
+          screenWidth: screenWidth,
+          isTablet: isTablet,
+          onViewVotes: (pollId) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PollVotesPage(
                   poll: poll,
-                  currentUsername: widget.username,
-                  currentUserRole: widget.userRole,
-                  getUserData: _getUserData,
                   communityId: widget.communityId,
-                  screenWidth: screenWidth,
-                  isTablet: isTablet,
-                  onViewVotes: (pollId) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PollVotesPage(
-                          poll: poll,
-                          communityId: widget.communityId,
-                          getUserData: _getUserData,
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
+                  getUserData: _getUserData,
+                ),
+              ),
             );
+          },
+        );
+      },
+    );
+  },
+);
           },
         );
       },
     );
   }
 
-  Widget _buildEmptyState(double screenWidth, bool isTablet) {
-    final isCompact = screenWidth < 350;
+ Widget _buildEmptyState(double screenWidth, bool isTablet) {
+  final isCompact = screenWidth < 350;
 
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.poll_outlined,
-            color: const Color(0xFF64B5F6),
-            size: isTablet ? 72 : (isCompact ? 48 : 64),
-          ),
-          SizedBox(height: isTablet ? 20 : (isCompact ? 12 : 16)),
-          Text(
-            'No polls available',
-            style: GoogleFonts.poppins(
-              fontSize: isTablet ? 20 : (isCompact ? 16 : 18),
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+      final availableHeight = constraints.maxHeight;
+      
+      // Adaptive sizing for landscape mode
+      final iconSize = isLandscape 
+          ? (isTablet ? 48.0 : (isCompact ? 32.0 : 40.0))
+          : (isTablet ? 72.0 : (isCompact ? 48.0 : 64.0));
+      final spacing = isLandscape 
+          ? (isTablet ? 12.0 : (isCompact ? 8.0 : 10.0))
+          : (isTablet ? 20.0 : (isCompact ? 12.0 : 16.0));
+      final titleSize = isLandscape 
+          ? (isTablet ? 16.0 : (isCompact ? 14.0 : 15.0))
+          : (isTablet ? 20.0 : (isCompact ? 16.0 : 18.0));
+      final subtitleSize = isLandscape 
+          ? (isTablet ? 14.0 : (isCompact ? 10.0 : 12.0))
+          : (isTablet ? 16.0 : (isCompact ? 12.0 : 14.0));
+      
+      return Center(
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: availableHeight > 200 ? 150 : availableHeight * 0.8,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.poll_outlined,
+                  color: const Color(0xFF64B5F6),
+                  size: iconSize,
+                ),
+                SizedBox(height: spacing),
+                Text(
+                  'No polls available',
+                  style: GoogleFonts.poppins(
+                    fontSize: titleSize,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: spacing / 2),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: isCompact ? 16 : 24),
+                  child: Text(
+                    'Be the first to create a poll!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: subtitleSize,
+                      color: Colors.white60,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          SizedBox(height: isTablet ? 8 : 4),
-          Text(
-            'Be the first to create a poll!',
-            style: GoogleFonts.poppins(
-              fontSize: isTablet ? 16 : (isCompact ? 12 : 14),
-              color: Colors.white60,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildCreateFAB(double screenWidth, bool isTablet) {
     final isCompact = screenWidth < 350;

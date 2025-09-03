@@ -37,12 +37,45 @@ class ChatService {
           .collection('user_chat_history').doc(userId).collection('sessions');
 
   // Get live zone count
-  Stream<int> getLiveZoneCount(String communityId) {
-    return _liveZoneRef(communityId)
-        .where('status', whereIn: ['waiting', 'paired'])
-        .snapshots()
-        .map((snapshot) => snapshot.docs.length);
-  }
+  // Get live zone count - only active users (waiting + actively chatting)
+Stream<int> getLiveZoneCount(String communityId) {
+  return _liveZoneRef(communityId)
+      .where('status', whereIn: ['waiting', 'paired'])
+      .snapshots()
+      .asyncMap((snapshot) async {
+    int activeCount = 0;
+    
+    for (var doc in snapshot.docs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final status = data['status'];
+      
+      if (status == 'waiting') {
+        // User is looking for a partner
+        activeCount++;
+      } else if (status == 'paired') {
+        // Check if the session is still active
+        final sessionId = data['sessionId'];
+        if (sessionId != null) {
+          try {
+            final sessionDoc = await _chatSessionsRef(communityId).doc(sessionId).get();
+            if (sessionDoc.exists) {
+              final sessionData = sessionDoc.data() as Map<String, dynamic>;
+              final sessionStatus = sessionData['status'];
+              // Only count if session is active (not ended or identity revealed)
+              if (sessionStatus == 'active' && !(sessionData['identityRevealed'] ?? false)) {
+                activeCount++;
+              }
+            }
+          } catch (e) {
+            debugPrint('Error checking session status: $e');
+          }
+        }
+      }
+    }
+    
+    return activeCount;
+  });
+}
 
   // Check if user has active session
   Future<ChatSession?> getActiveSession(String communityId, String userId) async {
@@ -501,45 +534,51 @@ Future<void> joinLiveZone(String communityId, String userId, String username) as
         final user2Data = user2Doc.data() as Map<String, dynamic>;
 
         // Update session
-        transaction.update(_chatSessionsRef(communityId).doc(sessionId), {
-          'identityRevealed': true,
-          'identityRevealedAt': FieldValue.serverTimestamp(),
-        });
+       // Update session - mark as ended when identity is revealed
+transaction.update(_chatSessionsRef(communityId).doc(sessionId), {
+  'identityRevealed': true,
+  'identityRevealedAt': FieldValue.serverTimestamp(),
+  'status': 'ended',
+  'endedAt': FieldValue.serverTimestamp(),
+  'endedBy': 'identity_reveal',
+});
 
         // Add system message about identity reveal
         final systemMessageRef = _messagesRef(communityId, sessionId).doc();
         final now = DateTime.now();
         transaction.set(systemMessageRef, {
-          'senderId': 'system',
-          'message': '🎭 Identities have been revealed! You can now see each other\'s usernames.',
-          'timestamp': FieldValue.serverTimestamp(),
-          'sequenceNumber': now.microsecondsSinceEpoch,
-          'readBy': [],
-          'status': 'delivered',
-          'isSystemMessage': true,
-          'messageType': 'system',
-        });
+  'senderId': 'system',
+  'message': 'Identities have been revealed! Chat session has ended.',
+  'timestamp': FieldValue.serverTimestamp(),
+  'sequenceNumber': now.microsecondsSinceEpoch,
+  'readBy': [],
+  'status': 'delivered',
+  'isSystemMessage': true,
+  'messageType': 'system',
+});
 
         // Update chat history for both users with revealed identity
         final startedAt = (sessionData['createdAt'] as Timestamp).toDate();
 
-        // User 1 history
-        transaction.set(_chatHistoryRef(communityId, participants[0]).doc(sessionId), {
-          'partnerId': participants[1],
-          'partnerData': user2Data['userData'],
-          'startedAt': Timestamp.fromDate(startedAt),
-          'identityRevealed': true,
-          'totalMessages': 0,
-        });
+        // User 1 history - mark as ended when identity revealed
+transaction.set(_chatHistoryRef(communityId, participants[0]).doc(sessionId), {
+  'partnerId': participants[1],
+  'partnerData': user2Data['userData'],
+  'startedAt': Timestamp.fromDate(startedAt),
+  'endedAt': FieldValue.serverTimestamp(),
+  'identityRevealed': true,
+  'totalMessages': 0,
+});
 
-        // User 2 history
-        transaction.set(_chatHistoryRef(communityId, participants[1]).doc(sessionId), {
-          'partnerId': participants[0],
-          'partnerData': user1Data['userData'],
-          'startedAt': Timestamp.fromDate(startedAt),
-          'identityRevealed': true,
-          'totalMessages': 0,
-        });
+// User 2 history - mark as ended when identity revealed
+transaction.set(_chatHistoryRef(communityId, participants[1]).doc(sessionId), {
+  'partnerId': participants[0],
+  'partnerData': user1Data['userData'],
+  'startedAt': Timestamp.fromDate(startedAt),
+  'endedAt': FieldValue.serverTimestamp(),
+  'identityRevealed': true,
+  'totalMessages': 0,
+});
       });
 
       // Count messages outside of transaction

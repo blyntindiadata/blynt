@@ -1,3 +1,5 @@
+// Updated UserProfileScreen with Instagram-like profile picture viewer
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -85,6 +87,32 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
+  void _showProfilePictureViewer() {
+    final imageUrl = communityData?['profileImageUrl'];
+    if (imageUrl == null) return;
+
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierColor: Colors.black87,
+        barrierDismissible: true,
+        pageBuilder: (context, animation, secondaryAnimation) => 
+            ProfilePictureViewer(imageUrl: imageUrl),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeInOut),
+              ),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Color _getRoleColor(String role) {
     switch (role.toLowerCase()) {
       case 'admin':
@@ -113,6 +141,58 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
+  Widget _buildHeader() {
+    final screenSize = MediaQuery.of(context).size;
+    final isTablet = screenSize.width > 600;
+    final horizontalPadding = isTablet ? 32.0 : 20.0;
+    
+    return Padding(
+      padding: EdgeInsets.all(horizontalPadding),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Container(
+              padding: EdgeInsets.all(isTablet ? 12 : 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.arrow_back_ios_new,
+                color: const Color(0xFFF7B42C),
+                size: isTablet ? 24 : 20,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(left: 20),
+              child: Center(
+                child: ShaderMask(
+                  shaderCallback: (bounds) => const LinearGradient(
+                    colors: [Color(0xFFF9B233), Color(0xFFFF8008), Color(0xFFB95E00)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ).createShader(bounds),
+                  blendMode: BlendMode.srcIn,
+                  child: Text(
+                    'about folks',
+                    style: GoogleFonts.poppins(
+                      fontSize: isTablet ? 28 : 22,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SizedBox(width: isTablet ? 56 : 48),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -134,38 +214,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.arrow_back_ios_new,
-                          color: Color(0xFFF7B42C),
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Text(
-                      'User Profile',
-                      style: GoogleFonts.poppins(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              // Header with updated styling
+              _buildHeader(),
 
               // Profile Content
               Expanded(
@@ -195,11 +245,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                Text(
-                                  'The user profile could not be loaded.',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 14,
-                                    color: Colors.white60,
+                                Center(
+                                  child: Text(
+                                    'The user profile could not be loaded or this profile might be deleted',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      color: Colors.white60,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -209,61 +261,60 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 20),
                             child: Column(
                               children: [
-                                // Profile Card
+                                // Profile Card - Updated to match other cards' width
                                 Container(
+                                  width: double.infinity,
                                   padding: const EdgeInsets.all(24),
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       begin: Alignment.topLeft,
                                       end: Alignment.bottomRight,
                                       colors: [
-                                        Colors.white.withOpacity(0.12),
-                                        Colors.white.withOpacity(0.06),
+                                        Colors.white.withOpacity(0.08),
+                                        Colors.white.withOpacity(0.04),
                                       ],
                                     ),
-                                    borderRadius: BorderRadius.circular(24),
+                                    borderRadius: BorderRadius.circular(16),
                                     border: Border.all(
-                                      color: const Color(0xFFF7B42C).withOpacity(0.3),
+                                      color: Colors.white.withOpacity(0.1),
                                       width: 1,
                                     ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(0xFFF7B42C).withOpacity(0.1),
-                                        blurRadius: 20,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
                                   ),
                                   child: Column(
                                     children: [
-                                      // Profile Image
-                                      Container(
-                                        width: 120,
-                                        height: 120,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: const Color(0xFFF7B42C),
-                                            width: 3,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: const Color(0xFFF7B42C).withOpacity(0.3),
-                                              blurRadius: 20,
-                                              spreadRadius: 2,
+                                      // Profile Image - Now clickable
+                                      GestureDetector(
+                                        onTap: communityData?['profileImageUrl'] != null 
+                                            ? _showProfilePictureViewer 
+                                            : null,
+                                        child: Container(
+                                          width: 120,
+                                          height: 120,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: const Color(0xFFF7B42C),
+                                              width: 3,
                                             ),
-                                          ],
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: const Color(0xFFF7B42C).withOpacity(0.3),
+                                                blurRadius: 20,
+                                                spreadRadius: 2,
+                                              ),
+                                            ],
+                                          ),
+                                          child: communityData?['profileImageUrl'] != null
+                                              ? ClipOval(
+                                                  child: Image.network(
+                                                    communityData!['profileImageUrl'],
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (context, error, stackTrace) =>
+                                                        _buildAvatarFallback(),
+                                                  ),
+                                                )
+                                              : _buildAvatarFallback(),
                                         ),
-                                        child: communityData?['profileImageUrl'] != null
-                                            ? ClipOval(
-                                                child: Image.network(
-                                                  communityData!['profileImageUrl'],
-                                                  fit: BoxFit.cover,
-                                                  errorBuilder: (context, error, stackTrace) =>
-                                                      _buildAvatarFallback(),
-                                                ),
-                                              )
-                                            : _buildAvatarFallback(),
                                       ),
 
                                       const SizedBox(height: 20),
@@ -336,26 +387,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
                                 const SizedBox(height: 24),
 
-                                // Information Cards
-                                _buildInfoCard(
-                                  'Contact Information',
-                                  [
-                                    _buildInfoItem(
-                                      Icons.email,
-                                      'Email',
-                                      userData!['email'] ?? 'Not provided',
-                                    ),
-                                    if (communityData?['userPhone'] != null)
-                                      _buildInfoItem(
-                                        Icons.phone,
-                                        'Phone',
-                                        communityData!['userPhone'],
-                                      ),
-                                  ],
-                                ),
-
-                                const SizedBox(height: 16),
-
                                 // Academic Information (if available)
                                 if (communityData?['year'] != null || communityData?['branch'] != null)
                                   _buildInfoCard(
@@ -376,7 +407,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                     ],
                                   ),
 
-                                const SizedBox(height: 16),
+                                if (communityData?['year'] != null || communityData?['branch'] != null)
+                                  const SizedBox(height: 16),
 
                                 // Membership Information
                                 _buildInfoCard(
@@ -431,6 +463,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   Widget _buildInfoCard(String title, List<Widget> children) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -534,5 +567,208 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     } catch (e) {
       return 'Unknown';
     }
+  }
+}
+
+// Profile Picture Viewer Widget
+class ProfilePictureViewer extends StatefulWidget {
+  final String imageUrl;
+
+  const ProfilePictureViewer({
+    super.key,
+    required this.imageUrl,
+  });
+
+  @override
+  State<ProfilePictureViewer> createState() => _ProfilePictureViewerState();
+}
+
+class _ProfilePictureViewerState extends State<ProfilePictureViewer>
+    with SingleTickerProviderStateMixin {
+  late TransformationController _transformationController;
+  late AnimationController _animationController;
+
+  @override
+  void initState() {
+    super.initState();
+    _transformationController = TransformationController();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+  }
+
+  @override
+  void dispose() {
+    _transformationController.dispose();
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  void _resetZoom() {
+    _transformationController.value = Matrix4.identity();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: GestureDetector(
+        onTap: () => Navigator.of(context).pop(),
+        child: Container(
+          color: Colors.black87,
+          child: SafeArea(
+            child: Stack(
+              children: [
+                // Main Image
+                Center(
+                  child: Hero(
+                    tag: 'profile_image_${widget.imageUrl}',
+                    child: InteractiveViewer(
+                      transformationController: _transformationController,
+                      minScale: 0.5,
+                      maxScale: 4.0,
+                      onInteractionEnd: (details) {
+                        // Reset zoom if scaled too far out
+                        if (_transformationController.value.getMaxScaleOnAxis() < 1.0) {
+                          _resetZoom();
+                        }
+                      },
+                      child: Container(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width,
+                          maxHeight: MediaQuery.of(context).size.height * 0.8,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            widget.imageUrl,
+                            fit: BoxFit.contain,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Container(
+                                width: 200,
+                                height: 200,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Center(
+                                  child: CircularProgressIndicator(
+                                    color: Color(0xFFF7B42C),
+                                  ),
+                                ),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                width: 200,
+                                height: 200,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.error_outline,
+                                      color: Colors.white60,
+                                      size: 48,
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Failed to load image',
+                                      style: TextStyle(
+                                        color: Colors.white60,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Close button
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Reset zoom button (appears when zoomed)
+                ValueListenableBuilder<Matrix4>(
+                  valueListenable: _transformationController,
+                  builder: (context, matrix, child) {
+                    final scale = matrix.getMaxScaleOnAxis();
+                    if (scale <= 1.0) return const SizedBox.shrink();
+                    
+                    return Positioned(
+                      bottom: 32,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: GestureDetector(
+                          onTap: _resetZoom,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.zoom_out_map,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Reset Zoom',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

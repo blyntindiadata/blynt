@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'package:startup/home.dart';
 import 'package:startup/home_components/home.dart';
@@ -20,7 +22,7 @@ class Aboutuser extends StatefulWidget {
   State<Aboutuser> createState() => _AboutuserState();
 }
 
-class _AboutuserState extends State<Aboutuser> {
+class _AboutuserState extends State<Aboutuser> with TickerProviderStateMixin {
   final TextEditingController usernameController = TextEditingController();
   final TextEditingController firstnameController = TextEditingController();
   final TextEditingController lastnameController = TextEditingController();
@@ -28,6 +30,9 @@ class _AboutuserState extends State<Aboutuser> {
   final TextEditingController monthController = TextEditingController();
   final TextEditingController yearController = TextEditingController();
 
+  final FocusNode usernameFocus = FocusNode();
+  final FocusNode firstnameFocus = FocusNode();
+  final FocusNode lastnameFocus = FocusNode();
   final FocusNode dayFocus = FocusNode();
   final FocusNode monthFocus = FocusNode();
   final FocusNode yearFocus = FocusNode();
@@ -37,40 +42,79 @@ class _AboutuserState extends State<Aboutuser> {
   bool lastnameEmpty = false;
   bool usernameEmpty = false;
   bool usernameTaken = false;
+  bool isLoading = false;
+  bool isUsernameChecking = false;
   Timer? debounceTimer;
+
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
     usernameController.addListener(_onUsernameChanged);
+    
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut),
+    );
+    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+      CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic),
+    );
+    
+    _fadeController.forward();
+    _slideController.forward();
   }
 
   void _onUsernameChanged() {
     debounceTimer?.cancel();
     final username = usernameController.text.trim();
+    
     if (username.isEmpty) {
       setState(() {
         usernameEmpty = true;
         usernameTaken = false;
+        isUsernameChecking = false;
       });
       return;
     }
+    
+    setState(() {
+      usernameEmpty = false;
+      isUsernameChecking = true;
+    });
+    
     debounceTimer = Timer(const Duration(milliseconds: 500), () async {
       final taken = await isUsernameTaken(username);
       setState(() {
         usernameTaken = taken;
-        usernameEmpty = false;
+        isUsernameChecking = false;
       });
     });
   }
 
   Future<bool> isUsernameTaken(String username) async {
-    final result = await FirebaseFirestore.instance
-        .collection('users')
-        .where('username', isEqualTo: username)
-        .limit(1)
-        .get();
-    return result.docs.isNotEmpty;
+    try {
+      final result = await FirebaseFirestore.instance
+          .collection('users')
+          .where('username', isEqualTo: username)
+          .limit(1)
+          .get();
+      return result.docs.isNotEmpty;
+    } catch (e) {
+      print('Error checking username: $e');
+      return false;
+    }
   }
 
   void validateDate() {
@@ -121,21 +165,33 @@ class _AboutuserState extends State<Aboutuser> {
     });
   }
 
-  InputDecoration buildInputDecoration(String label) {
+  InputDecoration buildInputDecoration(String label, {Widget? suffixIcon}) {
     return InputDecoration(
       counterText: '',
       labelText: label,
-      labelStyle: const TextStyle(
-        fontFamily: 'Poppins_Regular',
-        letterSpacing: 1.4,
-        color: Colors.white12,
-        fontSize: 14,
+      labelStyle: GoogleFonts.poppins(
+        color: Colors.grey[500],
+        fontSize: 13,
+        fontWeight: FontWeight.w400,
       ),
+      suffixIcon: suffixIcon,
       fillColor: Colors.grey[900],
       filled: true,
-      enabledBorder: const OutlineInputBorder(borderSide: BorderSide.none),
-      focusedBorder: const OutlineInputBorder(
-        borderSide: BorderSide(color: Colors.amberAccent),
+      enabledBorder: OutlineInputBorder(
+        borderSide: const BorderSide(color: Colors.white12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderSide: const BorderSide(color: Color(0xFFFFD700), width: 1.5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderSide: const BorderSide(color: Colors.redAccent),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+        borderRadius: BorderRadius.circular(12),
       ),
     );
   }
@@ -143,12 +199,17 @@ class _AboutuserState extends State<Aboutuser> {
   @override
   void dispose() {
     debounceTimer?.cancel();
+    _fadeController.dispose();
+    _slideController.dispose();
     usernameController.dispose();
     firstnameController.dispose();
     lastnameController.dispose();
     dayController.dispose();
     monthController.dispose();
     yearController.dispose();
+    usernameFocus.dispose();
+    firstnameFocus.dispose();
+    lastnameFocus.dispose();
     dayFocus.dispose();
     monthFocus.dispose();
     yearFocus.dispose();
@@ -157,265 +218,532 @@ class _AboutuserState extends State<Aboutuser> {
 
   @override
   Widget build(BuildContext context) {
-    final errorTextStyle = const TextStyle(
-      color: Colors.red,
-      fontFamily: 'Poppins_Regular',
-      fontSize: 11,
-      letterSpacing: 1.2,
-    );
-
+    final screenSize = MediaQuery.of(context).size;
+    final isTablet = screenSize.width > 600;
+    final horizontalPadding = isTablet ? screenSize.width * 0.2 : 24.0;
+    
     return Scaffold(
       backgroundColor: Colors.black,
       body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
         slivers: [
+          // App Bar
           SliverAppBar(
-            backgroundColor: Colors.amber[300],
-            expandedHeight: 200,
+            backgroundColor: Color(0xFFF9B233),
+            expandedHeight: Platform.isIOS ? 220 : 200,
             pinned: true,
+            elevation: 0,
+            automaticallyImplyLeading: false,
             flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 10),
-              background: Container(color: Colors.amber[400]),
-              title: const Text(
-                'about you',
-                style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 25,
-                  fontFamily: 'DMSerif',
+              titlePadding: EdgeInsets.symmetric(
+                horizontal: horizontalPadding, 
+                vertical: Platform.isIOS ? 16 : 10
+              ),
+              background: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFFF9B233), Color(0xFFFF8008)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+              ),
+              title: ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Color(0xFF101010), Color(0xFF222222)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ).createShader(bounds),
+                blendMode: BlendMode.srcIn,
+                child: Text(
+                  'about you',
+                  style: GoogleFonts.dmSerifDisplay(
+                    fontSize: isTablet ? 28 : 25,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
           ),
 
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.only(left: 35, top: 25),
-              child: Text(
-                'CREATE USERNAME',
-                style: TextStyle(
-                  fontFamily: 'Poppins_Medium',
-                  fontSize: 14,
-                  letterSpacing: 2.0,
-                  color: Colors.white38,
-                ),
-              ),
-            ),
-          ),
-
+          // Introduction Text
           SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: SignUpTextField(
-                prefixIcon: const ImageIcon(
-                  AssetImage('icons/username.png'),
-                  color: Colors.white12,
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: SlideTransition(
+                position: _slideAnimation,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: horizontalPadding,
+                    vertical: 20,
+                  ),
+                  child: Text(
+                    'tell us a bit about yourself to personalize your experience',
+                    style: GoogleFonts.poppins(
+                      color: Colors.white70,
+                      fontSize: isTablet ? 15 : 13,
+                      height: 1.5,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-                controller: usernameController,
-                hintText: 'username',
-                obscureText: false,
-                suffixIcon: (!usernameEmpty && !usernameTaken && usernameController.text.trim().isNotEmpty)
-                    ? const Icon(Icons.check_circle, color: Colors.green, size: 17)
-                    : null,
               ),
             ),
           ),
-          if (usernameTaken)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.only(left: 35, bottom: 10),
-                child: Text('this username is already taken', style: errorTextStyle),
-              ),
-            ),
 
-          // First & Last Name
-          _buildNameFields(errorTextStyle),
+          // Username Section
+          _buildUsernameSection(horizontalPadding, isTablet),
+
+          // Name Fields
+          _buildNameFields(horizontalPadding, isTablet),
 
           // Date of Birth
-          _buildDOBFields(errorTextStyle),
+          _buildDOBFields(horizontalPadding, isTablet),
 
-          // Confirm Button
-          _buildConfirmButton(),
+          // Continue Button
+          _buildContinueButton(horizontalPadding, isTablet),
+
+          // Bottom padding for safe area
+          SliverToBoxAdapter(
+            child: SizedBox(height: Platform.isIOS ? 30 : 20),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildNameFields(TextStyle errorTextStyle) {
-    return SliverList(
-      delegate: SliverChildListDelegate([
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          child: SignUpTextField(
-            prefixIcon: const ImageIcon(
-              AssetImage('icons/first_lastname.png'),
-              color: Colors.white12,
-            ),
-            controller: firstnameController,
-            hintText: 'first name',
-            obscureText: false,
-          ),
-        ),
-        if (firstnameEmpty)
-          Padding(
-            padding: const EdgeInsets.only(left: 35),
-            child: Text('please enter your first name', style: errorTextStyle),
-          ),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          child: SignUpTextField(
-            prefixIcon: const ImageIcon(
-              AssetImage('icons/first_lastname.png'),
-              color: Colors.white12,
-            ),
-            controller: lastnameController,
-            hintText: 'last name',
-            obscureText: false,
-          ),
-        ),
-        if (lastnameEmpty)
-          Padding(
-            padding: const EdgeInsets.only(left: 35),
-            child: Text('please enter your last name', style: errorTextStyle),
-          ),
-      ]),
-    );
-  }
-
-  Widget _buildDOBFields(TextStyle errorTextStyle) {
-    return SliverList(
-      delegate: SliverChildListDelegate([
-        const Padding(
-          padding: EdgeInsets.only(left: 35, top: 25),
-          child: Text(
-            'DATE OF BIRTH',
-            style: TextStyle(
-              fontFamily: 'Poppins_Medium',
-              fontSize: 14,
-              letterSpacing: 2.0,
-              color: Colors.white38,
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 10),
-          child: Row(
+  Widget _buildUsernameSection(double horizontalPadding, bool isTablet) {
+    return SliverToBoxAdapter(
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDateField(dayController, 'DD', dayFocus, monthFocus),
-              const SizedBox(width: 8),
-              _buildDateField(monthController, 'MM', monthFocus, yearFocus),
-              const SizedBox(width: 8),
-              _buildDateField(yearController, 'YYYY', yearFocus, null, flex: 2),
+              Text(
+                'CREATE USERNAME',
+                style: GoogleFonts.poppins(
+                  fontSize: isTablet ? 15 : 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 2.0,
+                  color: Colors.grey[400],
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: usernameController,
+                focusNode: usernameFocus,
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: isTablet ? 16 : 14,
+                ),
+                cursorColor: const Color(0xFFFFD700),
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => FocusScope.of(context).requestFocus(firstnameFocus),
+                decoration: buildInputDecoration(
+                  'username',
+                  suffixIcon: _buildUsernameStatusIcon(),
+                ),
+              ),
+              if (usernameTaken || usernameEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  usernameTaken 
+                    ? 'this username is already taken' 
+                    : 'please enter a username',
+                  style: GoogleFonts.poppins(
+                    color: Colors.redAccent,
+                    fontSize: isTablet ? 12 : 11,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
             ],
           ),
         ),
-        if (isInvalidDate)
-          Padding(
-            padding: const EdgeInsets.only(left: 35),
-            child: Text('invalid date', style: errorTextStyle),
-          ),
-      ]),
+      ),
     );
   }
 
-  Widget _buildDateField(
-    TextEditingController controller,
-    String label,
-    FocusNode focus,
-    FocusNode? nextFocus, {
-    int flex = 1,
+  Widget? _buildUsernameStatusIcon() {
+    if (isUsernameChecking) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SizedBox(
+          height: 16,
+          width: 16,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Colors.amber,
+          ),
+        ),
+      );
+    }
+    
+    if (usernameController.text.trim().isNotEmpty && !usernameTaken && !usernameEmpty) {
+      return const Icon(
+        Icons.check_circle,
+        color: Colors.greenAccent,
+        size: 20,
+      );
+    }
+    
+    return null;
+  }
+
+  Widget _buildNameFields(double horizontalPadding, bool isTablet) {
+    return SliverToBoxAdapter(
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'PERSONAL DETAILS',
+                style: GoogleFonts.poppins(
+                  fontSize: isTablet ? 15 : 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 2.0,
+                  color: Colors.grey[400],
+                ),
+              ),
+              const SizedBox(height: 12),
+              
+              // First Name
+              TextField(
+                controller: firstnameController,
+                focusNode: firstnameFocus,
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: isTablet ? 16 : 14,
+                ),
+                cursorColor: const Color(0xFFFFD700),
+                textInputAction: TextInputAction.next,
+                textCapitalization: TextCapitalization.words,
+                onSubmitted: (_) => FocusScope.of(context).requestFocus(lastnameFocus),
+                decoration: buildInputDecoration('first name'),
+              ),
+              if (firstnameEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'please enter your first name',
+                  style: GoogleFonts.poppins(
+                    color: Colors.redAccent,
+                    fontSize: isTablet ? 12 : 11,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              
+              // Last Name
+              TextField(
+                controller: lastnameController,
+                focusNode: lastnameFocus,
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: isTablet ? 16 : 14,
+                ),
+                cursorColor: const Color(0xFFFFD700),
+                textInputAction: TextInputAction.next,
+                textCapitalization: TextCapitalization.words,
+                onSubmitted: (_) => FocusScope.of(context).requestFocus(dayFocus),
+                decoration: buildInputDecoration('last name'),
+              ),
+              if (lastnameEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'please enter your last name',
+                  style: GoogleFonts.poppins(
+                    color: Colors.redAccent,
+                    fontSize: isTablet ? 12 : 11,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDOBFields(double horizontalPadding, bool isTablet) {
+    return SliverToBoxAdapter(
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'DATE OF BIRTH',
+                style: GoogleFonts.poppins(
+                  fontSize: isTablet ? 15 : 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 2.0,
+                  color: Colors.grey[400],
+                ),
+              ),
+              const SizedBox(height: 12),
+              
+              Row(
+                children: [
+                  _buildDateField(
+                    controller: dayController,
+                    label: 'DD',
+                    focus: dayFocus,
+                    nextFocus: monthFocus,
+                    flex: 2,
+                    isTablet: isTablet,
+                  ),
+                  const SizedBox(width: 12),
+                  _buildDateField(
+                    controller: monthController,
+                    label: 'MM',
+                    focus: monthFocus,
+                    nextFocus: yearFocus,
+                    flex: 2,
+                    isTablet: isTablet,
+                  ),
+                  const SizedBox(width: 12),
+                  _buildDateField(
+                    controller: yearController,
+                    label: 'YYYY',
+                    focus: yearFocus,
+                    flex: 3,
+                    isTablet: isTablet,
+                  ),
+                ],
+              ),
+              
+              if (isInvalidDate) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'please enter a valid date',
+                  style: GoogleFonts.poppins(
+                    color: Colors.redAccent,
+                    fontSize: isTablet ? 12 : 11,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 30),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateField({
+    required TextEditingController controller,
+    required String label,
+    required FocusNode focus,
+    FocusNode? nextFocus,
+    required int flex,
+    required bool isTablet,
   }) {
-    return Flexible(
+    return Expanded(
       flex: flex,
       child: TextField(
         controller: controller,
+        focusNode: focus,
         keyboardType: TextInputType.number,
         maxLength: label == 'YYYY' ? 4 : 2,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        cursorColor: Colors.yellowAccent,
-        style: const TextStyle(color: Colors.yellow, fontFamily: 'Poppins_Regular', fontSize: 16),
+        cursorColor: const Color(0xFFFFD700),
+        textAlign: TextAlign.center,
+        style: GoogleFonts.poppins(
+          color: Colors.white,
+          fontSize: isTablet ? 18 : 16,
+          fontWeight: FontWeight.w500,
+        ),
         decoration: buildInputDecoration(label),
-        focusNode: focus,
         onChanged: (val) {
           if ((label == 'YYYY' && val.length == 4) || (label != 'YYYY' && val.length == 2)) {
-            if (nextFocus != null) FocusScope.of(context).requestFocus(nextFocus);
-            else FocusScope.of(context).unfocus();
+            if (nextFocus != null) {
+              FocusScope.of(context).requestFocus(nextFocus);
+            } else {
+              FocusScope.of(context).unfocus();
+              validateDate();
+            }
           }
         },
       ),
     );
   }
 
-  Widget _buildConfirmButton() {
-  return SliverToBoxAdapter(
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 35, vertical: 20),
-      child: ElevatedButton(
-        onPressed: () async {
-          final username = usernameController.text.trim();
-          final firstName = firstnameController.text.trim();
-          final lastName = lastnameController.text.trim();
+  Widget _buildContinueButton(double horizontalPadding, bool isTablet) {
+    return SliverToBoxAdapter(
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: isLoading
+              ? Column(
+                  children: [
+                    const CircularProgressIndicator(
+                      color: Colors.amber,
+                      strokeWidth: 3,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'entering paradise',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white70,
+                        fontSize: isTablet ? 16 : 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                )
+              : GestureDetector(
+                  onTap: _handleContinue,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    padding: EdgeInsets.symmetric(
+                      vertical: isTablet ? 18 : 16,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: _canProceed()
+                          ? const LinearGradient(
+                              colors: [Color(0xFFFFD700), Color(0xFFB77200)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : const LinearGradient(
+                              colors: [Colors.grey, Colors.grey],
+                            ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: _canProceed()
+                          ? [
+                              BoxShadow(
+                                color: Colors.amberAccent.withOpacity(0.6),
+                                blurRadius: 18,
+                                spreadRadius: 1,
+                                offset: const Offset(0, 0),
+                              ),
+                              BoxShadow(
+                                color: Colors.amber.withOpacity(0.2),
+                                blurRadius: 4,
+                                spreadRadius: 1,
+                                offset: const Offset(0, 4),
+                              ),
+                            ]
+                          : [],
+                    ),
+                    child: Center(
+                      child: ShaderMask(
+                        shaderCallback: (bounds) => const LinearGradient(
+                          colors: [Color(0xFF101010), Color(0xFF222222)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ).createShader(bounds),
+                        blendMode: BlendMode.srcIn,
+                        child: Text(
+                          "CONTINUE",
+                          style: GoogleFonts.poppins(
+                            fontSize: isTablet ? 16 : 14,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
 
-          setState(() {
-            firstnameEmpty = firstName.isEmpty;
-            lastnameEmpty = lastName.isEmpty;
-            usernameEmpty = username.isEmpty;
-          });
+  bool _canProceed() {
+    return usernameController.text.trim().isNotEmpty &&
+           firstnameController.text.trim().isNotEmpty &&
+           lastnameController.text.trim().isNotEmpty &&
+           dayController.text.isNotEmpty &&
+           monthController.text.isNotEmpty &&
+           yearController.text.isNotEmpty &&
+           !usernameTaken &&
+           !isInvalidDate &&
+           !isUsernameChecking;
+  }
 
-          validateDate();
+  Future<void> _handleContinue() async {
+    if (!_canProceed() || isLoading) return;
 
-          if (usernameEmpty || firstnameEmpty || lastnameEmpty || isInvalidDate || usernameTaken) return;
+    final username = usernameController.text.trim();
+    final firstName = firstnameController.text.trim();
+    final lastName = lastnameController.text.trim();
 
-          final dob = DateTime(
-            int.parse(yearController.text),
-            int.parse(monthController.text),
-            int.parse(dayController.text),
-          );
+    setState(() {
+      firstnameEmpty = firstName.isEmpty;
+      lastnameEmpty = lastName.isEmpty;
+      usernameEmpty = username.isEmpty;
+      isLoading = true;
+    });
 
-          try {
-            await storeUserData(
+    validateDate();
+
+    if (usernameEmpty || firstnameEmpty || lastnameEmpty || isInvalidDate || usernameTaken) {
+      setState(() => isLoading = false);
+      return;
+    }
+
+    try {
+      final dob = DateTime(
+        int.parse(yearController.text),
+        int.parse(monthController.text),
+        int.parse(dayController.text),
+      );
+
+      await storeUserData(
+        uid: widget.uid,
+        email: widget.email,
+        username: username,
+        firstName: firstName,
+        lastName: lastName,
+        dob: dob,
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('username', username);
+      await prefs.setString('firstName', firstName);
+      await prefs.setString('lastName', lastName);
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => Home(
               uid: widget.uid,
               email: widget.email,
               username: username,
               firstName: firstName,
               lastName: lastName,
-              dob: dob,
-            );
-
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('username', username); // ✅ STORE USERNAME HERE
-            await prefs.setString('firstName', firstName);
-            await prefs.setString('lastName', lastName);
-
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => Home(
-                  uid: widget.uid,
-                  email: widget.email,
-                  username: username,
-                  firstName: firstName,
-                  lastName: lastName,
-                ),
-              ),
-            );
-          } catch (e) {
-            print('Error storing user data: $e');
-          }
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.amberAccent[400],
-          padding: const EdgeInsets.symmetric(vertical: 14),
-        ),
-        child: const Text(
-          "CONTINUE",
-          style: TextStyle(
-            color: Colors.black,
-            fontFamily: 'Poppins_Regular',
-            letterSpacing: 2.3,
+            ),
           ),
-        ),
-      ),
-    ),
-  );
-}
-
+        );
+      }
+    } catch (e) {
+      print('Error storing user data: $e');
+      setState(() => isLoading = false);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to create profile. Please try again.',
+              style: GoogleFonts.poppins(),
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
 }

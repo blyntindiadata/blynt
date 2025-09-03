@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/scheduler.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class RubyPlaneGame extends StatefulWidget {
   final String communityId;
@@ -28,6 +29,8 @@ class _RubyPlaneGameState extends State<RubyPlaneGame>
   bool get isTablet => MediaQuery.of(context).size.shortestSide >= 600;
   bool get isLandscape => MediaQuery.of(context).orientation == Orientation.landscape;
   bool get isSmallDevice => MediaQuery.of(context).size.height < 600;
+
+  static const String _rewardedAdUnitId = 'ca-app-pub-3940256099942544/5224354917';
   
   double get screenWidth => MediaQuery.of(context).size.width;
   double get screenHeight => MediaQuery.of(context).size.height;
@@ -50,7 +53,7 @@ class _RubyPlaneGameState extends State<RubyPlaneGame>
   double get planeHeight => isTablet ? 30 : (isSmallDevice ? 15 : 20);
   
   // Font sizes
-  double get headerFontSize => isTablet ? 24 : (isSmallDevice ? 16 : 20);
+  double get headerFontSize => isTablet ? 20 : (isSmallDevice ? 16 : 18);
   double get scoreFontSize => isTablet ? 22 : (isSmallDevice ? 16 : 18);
   double get gameTextFontSize => isTablet ? 32 : (isSmallDevice ? 20 : 24);
   double get instructionFontSize => isTablet ? 20 : (isSmallDevice ? 14 : 16);
@@ -64,23 +67,35 @@ class _RubyPlaneGameState extends State<RubyPlaneGame>
   bool canPlay = true;
   bool gameOver = false;
   int pointsEarned = 0;
-  
-  // Add flag to prevent double attempts counting
-  bool attemptCounted = false;
+
+bool attemptCounted = false;
+RewardedAd? _rewardedAd;
+bool _isAdLoaded = false;
+bool _shouldShowAd = false;
 
   // Buildings: each = [x, gapCenterY, scoredFlag]
   List<List<dynamic>> buildings = [];
 
+
+
+
   late Ticker ticker;
   Random rand = Random();
+ 
+
   double lastGapY = 300;
 
   @override
-  void initState() {
-    super.initState();
-    ticker = createTicker(_update)..start();
-    _loadTodayAttempts();
-  }
+void initState() {
+  super.initState();
+  ticker = createTicker(_update)..start();
+  _loadUserAttempts();
+  
+  // Preload the first ad
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _loadRewardedAd();
+  });
+}
 
   @override
   void didChangeDependencies() {
@@ -90,60 +105,233 @@ class _RubyPlaneGameState extends State<RubyPlaneGame>
     lastGapY = height / 2;
   }
 
-  Future<void> _loadTodayAttempts() async {
-    try {
-      final today = DateTime.now();
-      final todayString = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-      
-      final doc = await FirebaseFirestore.instance
-          .collection('communities')
-          .doc(widget.communityId)
-          .collection('game_attempts')
-          .doc('${widget.username}_plane_$todayString')
-          .get();
-
-      if (doc.exists) {
+void _loadRewardedAd() {
+  print('🔄 Loading rewarded ad...');
+  
+  RewardedAd.load(
+    adUnitId: _rewardedAdUnitId,
+    request: const AdRequest(),
+    rewardedAdLoadCallback: RewardedAdLoadCallback(
+      onAdLoaded: (RewardedAd ad) {
+        print('✅ Rewarded ad loaded successfully');
         setState(() {
-          attemptsToday = doc.data()?['attempts'] ?? 0;
-          canPlay = attemptsToday < 200;
+          _rewardedAd = ad;
+          _isAdLoaded = true;
+        });
+        
+        // If we were waiting to show an ad, show it immediately
+        if (_shouldShowAd && mounted) {
+          print('🎯 Showing ad that was waiting to load');
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted && _shouldShowAd) {
+              _showRewardedAd();
+            }
+          });
+        }
+      },
+      onAdFailedToLoad: (LoadAdError error) {
+        print('❌ Rewarded ad failed to load: $error');
+        print('❌ Error code: ${error.code}');
+        print('❌ Error domain: ${error.domain}');
+        print('❌ Error message: ${error.message}');
+        
+        setState(() {
+          _rewardedAd = null;
+          _isAdLoaded = false;
+        });
+        
+        // If user is waiting for an ad, allow them to continue after a delay
+        if (_shouldShowAd && mounted) {
+          print('🔄 Ad failed to load, allowing user to continue after delay');
+          
+          // Try loading again after 3 seconds
+          Timer(const Duration(seconds: 3), () {
+            if (mounted && _shouldShowAd && !_isAdLoaded) {
+              print('🔄 Retrying ad load...');
+              _loadRewardedAd();
+            }
+          });
+          
+          // Allow user to continue after 10 seconds if still no ad
+          Timer(const Duration(seconds: 10), () {
+            if (mounted && _shouldShowAd && !_isAdLoaded) {
+              print('⏰ Timeout reached, allowing user to continue');
+              setState(() {
+                _shouldShowAd = false;
+                canPlay = true;
+              });
+              
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Ad could not be loaded. You can continue playing.'),
+                    backgroundColor: const Color(0xFFE91E63),
+                  ),
+                );
+              }
+            }
+          });
+        }
+      },
+    ),
+  );
+}
+
+Future<void> _updateAttempts() async {
+  try {
+    final userAttemptsRef = FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('user_game_data')
+        .doc('${widget.userId}_plane_attempts');
+
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final doc = await transaction.get(userAttemptsRef);
+      
+      if (doc.exists) {
+        final currentAttempts = doc.data()?['totalAttempts'] ?? 0;
+        final newAttempts = currentAttempts + 1;
+        
+        transaction.update(userAttemptsRef, {
+          'totalAttempts': newAttempts,
+          'lastAttempt': FieldValue.serverTimestamp(),
+          'username': widget.username,
+          'userId': widget.userId,
+        });
+        
+        setState(() {
+          attemptsToday = newAttempts;
         });
       } else {
+        transaction.set(userAttemptsRef, {
+          'totalAttempts': 1,
+          'lastAttempt': FieldValue.serverTimestamp(),
+          'username': widget.username,
+          'userId': widget.userId,
+        });
+        
         setState(() {
-          attemptsToday = 0;
+          attemptsToday = 1;
+        });
+      }
+    });
+
+    // Check if we need to show an ad (every 5 attempts)
+    if (attemptsToday % 5 == 0 && attemptsToday > 0) {
+      _triggerAdAfterAttempts();
+    }
+
+  } catch (e) {
+    print('Error updating attempts: $e');
+  }
+}
+
+// ADD this new method after _updateAttempts():
+Future<void> _loadUserAttempts() async {
+  try {
+    final userAttemptsRef = FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('user_game_data')
+        .doc('${widget.userId}_plane_attempts');
+
+    final doc = await userAttemptsRef.get();
+    if (doc.exists) {
+      setState(() {
+        attemptsToday = doc.data()?['totalAttempts'] ?? 0;
+      });
+    }
+  } catch (e) {
+    print('Error loading attempts: $e');
+  }
+}
+
+void _triggerAdAfterAttempts() {
+  print('🎮 Triggering ad after ${attemptsToday} attempts. Ad loaded: $_isAdLoaded');
+  
+  setState(() {
+    canPlay = false;
+    _shouldShowAd = true;
+  });
+  
+  if (_isAdLoaded && _rewardedAd != null) {
+    print('🎯 Ad is ready, showing in 1 second');
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted && _shouldShowAd) {
+        _showRewardedAd();
+      }
+    });
+  } else {
+    print('⏳ Ad not ready, loading now...');
+    _loadRewardedAd();
+  }
+}
+
+void _showRewardedAd() {
+  if (!mounted || _rewardedAd == null || !_isAdLoaded) {
+    print('❌ Cannot show ad: mounted=$mounted, ad=${_rewardedAd != null}, loaded=$_isAdLoaded');
+    return;
+  }
+  
+  print('🚀 Showing rewarded ad');
+  
+  _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+    onAdShowedFullScreenContent: (ad) {
+      print('✅ Ad showed full screen content');
+    },
+    onAdDismissedFullScreenContent: (ad) {
+      print('📱 Ad dismissed');
+      ad.dispose();
+      
+      if (mounted) {
+        setState(() {
+          _rewardedAd = null;
+          _isAdLoaded = false;
+          _shouldShowAd = false;
           canPlay = true;
         });
       }
-    } catch (e) {
-      print('Error loading attempts: $e');
-    }
-  }
-
-  Future<void> _updateAttempts() async {
-    try {
-      final today = DateTime.now();
-      final todayString = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       
-      await FirebaseFirestore.instance
-          .collection('communities')
-          .doc(widget.communityId)
-          .collection('game_attempts')
-          .doc('${widget.username}_plane_$todayString')
-          .set({
-        'username': widget.username,
-        'game': 'plane',
-        'attempts': attemptsToday + 1,
-        'date': todayString,
-        'lastAttempt': FieldValue.serverTimestamp(),
+      // Preload next ad
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          _loadRewardedAd();
+        }
       });
+    },
+    onAdFailedToShowFullScreenContent: (ad, error) {
+      print('❌ Ad failed to show: $error');
+      ad.dispose();
+      
+      if (mounted) {
+        setState(() {
+          _rewardedAd = null;
+          _isAdLoaded = false;
+          _shouldShowAd = false;
+          canPlay = true;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ad failed to show. You can continue playing.'),
+            backgroundColor: const Color(0xFFE91E63),
+          ),
+        );
+      }
+      
+      // Try loading next ad
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          _loadRewardedAd();
+        }
+      });
+    },
+  );
 
-      setState(() {
-        attemptsToday++;
-        canPlay = attemptsToday < 200;
-      });
-    } catch (e) {
-      print('Error updating attempts: $e');
-    }
-  }
+  _rewardedAd!.show(onUserEarnedReward: (ad, reward) {
+    print('🏆 User earned reward: ${reward.amount} ${reward.type}');
+  });
+}
 
   Future<void> _updateScore(int points) async {
     print('🎮 Attempting to update score: $points points for user: ${widget.username}');
@@ -355,19 +543,231 @@ class _RubyPlaneGameState extends State<RubyPlaneGame>
     _showGameOverDialog();
   }
 
-  void _resetGame() {
-    setState(() {
-      gameStarted = false;
-      gameOver = false;
-      score = 0;
-      pointsEarned = 0;
-      planeY = height / 2;
-      planeVelocity = 0;
-      buildings.clear();
-      lastGapY = height / 2;
-      attemptCounted = false; // This is crucial!
+// REPLACE _resetGame() method with:
+void _resetGame() {
+  setState(() {
+    gameStarted = false;
+    gameOver = false;
+    score = 0;
+    pointsEarned = 0;
+    planeY = height / 2;
+    planeVelocity = 0;
+    buildings.clear();
+    lastGapY = height / 2;
+    attemptCounted = false;
+  });
+}
+
+// ADD this new method:
+// REPLACE the entire _showRewardedAdForAttempts() method with:
+// REPLACE the entire _showRewardedAdForAttempts() method with:
+void _showRewardedAdForAttempts() {
+  print('Attempting to show rewarded ad. Ad loaded: $_isAdLoaded');
+  
+  if (_isAdLoaded && _rewardedAd != null) {
+    _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        print('Rewarded ad dismissed without reward');
+        ad.dispose();
+        _rewardedAd = null;
+        _isAdLoaded = false;
+        // _isShowingAd = false; // Reset flag
+        _loadRewardedAd();
+        // Keep user blocked - they must watch the ad
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        print('Rewarded ad failed to show: $error');
+        ad.dispose();
+        _rewardedAd = null;
+        _isAdLoaded = false;
+        // _isShowingAd = false; // Reset flag
+        _loadRewardedAd();
+        // If ad fails to show, allow them to continue (graceful fallback)
+        setState(() {
+          canPlay = true;
+        });
+      },
+    );
+
+    _rewardedAd!.show(onUserEarnedReward: (ad, reward) {
+      print('User earned reward: ${reward.amount} ${reward.type}');
+      ad.dispose();
+      _rewardedAd = null;
+      _isAdLoaded = false;
+      // _isShowingAd = false; // Reset flag
+      _loadRewardedAd();
+      
+      setState(() {
+        canPlay = true; // Allow play after watching ad
+      });
+    });
+  } else {
+    print('Rewarded ad not ready, retrying in 3 seconds');
+    // Auto-retry loading ad with longer delay
+    Timer(const Duration(seconds: 3), () {
+      if (!canPlay && !_isAdLoaded) { // Only retry if still blocked and no ad
+        _showRewardedAdForAttempts();
+      }
     });
   }
+}
+
+void _showMustWatchAdDialog() {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      return WillPopScope(
+        onWillPop: () async => false, // Prevent back button
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF2D0F1A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(isTablet ? 20 : 16)
+          ),
+          title: Text(
+            'Watch Ad to Continue',
+            style: GoogleFonts.poppins(
+              color: const Color(0xFFE91E63),
+              fontWeight: FontWeight.bold,
+              fontSize: isTablet ? 24 : (isSmallDevice ? 18 : 20),
+            ),
+          ),
+          content: Text(
+            'You\'ve played 5 games! Please watch a short ad to continue playing.',
+            style: GoogleFonts.poppins(
+              color: Colors.white70,
+              fontSize: isTablet ? 16 : (isSmallDevice ? 12 : 14),
+            ),
+          ),
+        actions: [
+  if (canPlay) ...[
+    ElevatedButton(
+      onPressed: () {
+        Navigator.of(context).pop();
+        _resetGame();
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFFE91E63),
+        foregroundColor: Colors.white,
+        padding: EdgeInsets.symmetric(
+          horizontal: isTablet ? 24 : 16,
+          vertical: isTablet ? 12 : 8,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(isTablet ? 12 : 8),
+        ),
+      ),
+      child: Text(
+        'Try Again',
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          fontSize: isTablet ? 16 : 14,
+        ),
+      ),
+    ),
+  ] else ...[
+    ElevatedButton(
+      onPressed: () {
+        Navigator.of(context).pop();
+        // Just close dialog, user will see loading screen
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF8B2635),
+        foregroundColor: Colors.white,
+        padding: EdgeInsets.symmetric(
+          horizontal: isTablet ? 24 : 16,
+          vertical: isTablet ? 12 : 8,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(isTablet ? 12 : 8),
+        ),
+      ),
+      child: Text(
+        'Loading...',
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          fontSize: isTablet ? 16 : 14,
+        ),
+      ),
+    ),
+  ],
+],
+        ),
+      );
+    },
+  );
+}
+
+void _showAdLoadingDialog() {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      return WillPopScope(
+        onWillPop: () async => false,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF2D0F1A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(isTablet ? 20 : 16)
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                color: const Color(0xFFE91E63),
+              ),
+              SizedBox(height: 20),
+              Text(
+                'Loading ad...',
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: isTablet ? 18 : 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  // Try to load ad with timeout
+  Timer(const Duration(seconds: 10), () {
+    if (Navigator.canPop(context)) {
+      Navigator.of(context).pop(); // Close loading dialog
+      
+      if (_isAdLoaded) {
+        _showRewardedAdForAttempts();
+      } else {
+        // Graceful fallback - allow play if ad won't load
+        setState(() {
+          canPlay = true;
+        
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ad failed to load. You can continue playing.'),
+            backgroundColor: const Color(0xFFE91E63),
+          ),
+        );
+      }
+    }
+  });
+}
+// Actual reset logic unchanged
+void _proceedResetGame() {
+  setState(() {
+    gameStarted = false;
+    gameOver = false;
+    score = 0;
+    pointsEarned = 0;
+    planeY = height / 2;
+    planeVelocity = 0;
+    buildings.clear();
+    lastGapY = height / 2;
+    attemptCounted = false;
+  });
+}
 
   void _showGameOverDialog() {
     showDialog(
@@ -431,59 +831,60 @@ class _RubyPlaneGameState extends State<RubyPlaneGame>
               ),
             ],
           ),
-          actions: [
-            if (canPlay) ...[
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  _resetGame();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE91E63),
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isTablet ? 24 : 16,
-                    vertical: isTablet ? 12 : 8,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(isTablet ? 12 : 8),
-                  ),
-                ),
-                child: Text(
-                  'Try Again',
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                    fontSize: isTablet ? 16 : 14,
-                  ),
-                ),
-              ),
-            ] else ...[
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).pop();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8B2635),
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isTablet ? 24 : 16,
-                    vertical: isTablet ? 12 : 8,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(isTablet ? 12 : 8),
-                  ),
-                ),
-                child: Text(
-                  'Done',
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                    fontSize: isTablet ? 16 : 14,
-                  ),
-                ),
-              ),
-            ],
-          ],
+        // Replace the actions section with:
+actions: [
+  if (canPlay) ...[
+    ElevatedButton(
+      onPressed: () {
+        Navigator.of(context).pop();
+        _resetGame();
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFFE91E63),
+        foregroundColor: Colors.white,
+        padding: EdgeInsets.symmetric(
+          horizontal: isTablet ? 24 : 16,
+          vertical: isTablet ? 12 : 8,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(isTablet ? 12 : 8),
+        ),
+      ),
+      child: Text(
+        'Try Again',
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          fontSize: isTablet ? 16 : 14,
+        ),
+      ),
+    ),
+  ] else ...[
+    ElevatedButton(
+      onPressed: () {
+        Navigator.of(context).pop();
+        Navigator.of(context).pop();
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF8B2635),
+        foregroundColor: Colors.white,
+        padding: EdgeInsets.symmetric(
+          horizontal: isTablet ? 24 : 16,
+          vertical: isTablet ? 12 : 8,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(isTablet ? 12 : 8),
+        ),
+      ),
+      child: Text(
+        'Loading Ad...',
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          fontSize: isTablet ? 16 : 14,
+        ),
+      ),
+    ),
+  ],
+],
         );
       },
     );
@@ -532,16 +933,16 @@ class _RubyPlaneGameState extends State<RubyPlaneGame>
         isTablet ? 24 : 20,
         isTablet ? 20 : 16,
       ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF4A1625).withOpacity(0.3),
-            Colors.transparent,
-          ],
-        ),
-      ),
+      // decoration: BoxDecoration(
+      //   gradient: LinearGradient(
+      //     begin: Alignment.topLeft,
+      //     end: Alignment.bottomRight,
+      //     colors: [
+      //       const Color(0xFF4A1625).withOpacity(0.3),
+      //       Colors.transparent,
+      //     ],
+      //   ),
+      // ),
       child: Row(
   children: [
     GestureDetector(
@@ -595,22 +996,23 @@ class _RubyPlaneGameState extends State<RubyPlaneGame>
                     colors: [const Color(0xFFE91E63), const Color(0xFF8B2635)],
                   ).createShader(bounds),
                   child: Text(
-                    'ruby plane',
+                    'mayday!',
                     style: GoogleFonts.dmSerifDisplay(
-                      fontSize: headerFontSize,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: 0.5
-                    ),
+                    fontSize: headerFontSize,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 0.5
+                  ),
                   ),
                 ),
                 Text(
-                  'attempts: $attemptsToday/200',
-                  style: GoogleFonts.poppins(
-                    fontSize: isTablet ? 14 : (isSmallDevice ? 10 : 12),
-                    color: canPlay ? const Color(0xFFE91E63) : Colors.red,
-                  ),
-                ),
+  'total attempts: $attemptsToday',
+  style: GoogleFonts.poppins(
+    fontSize: isTablet ? 14 : (isSmallDevice ? 10 : 12),
+    color: canPlay ? const Color(0xFFE91E63) : Colors.red,
+  ),
+),
+
               ],
             ),
           ),
@@ -682,86 +1084,60 @@ class _RubyPlaneGameState extends State<RubyPlaneGame>
     );
   }
 
-  Widget _buildLimitReachedView() {
-    return Container(
-      padding: EdgeInsets.all(isTablet ? 32 : 24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.access_time,
-            color: Colors.red,
-            size: isTablet ? 80 : (isSmallDevice ? 48 : 64),
+Widget _buildLimitReachedView() {
+  print('🎯 Building limit reached view. Should show ad: $_shouldShowAd, Ad loaded: $_isAdLoaded');
+  
+  return Container(
+    padding: EdgeInsets.all(isTablet ? 32 : 24),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.video_library,
+          size: isTablet ? 64 : 48,
+          color: const Color(0xFFE91E63),
+        ),
+        SizedBox(height: isTablet ? 24 : 16),
+        Text(
+          'Loading Ad...',
+          style: GoogleFonts.poppins(
+            fontSize: isTablet ? 24 : (isSmallDevice ? 18 : 20),
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
           ),
-          SizedBox(height: isTablet ? 32 : 24),
-          Text(
-            'Daily Limit Reached',
-            style: GoogleFonts.poppins(
-              fontSize: isTablet ? 32 : (isSmallDevice ? 20 : 24),
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+        ),
+        SizedBox(height: isTablet ? 12 : 8),
+        Text(
+          'You\'ve completed 5 games!\nPlease wait for the ad to load.',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            fontSize: isTablet ? 16 : (isSmallDevice ? 12 : 14),
+            color: Colors.white70,
           ),
-          SizedBox(height: isTablet ? 24 : 16),
-          Container(
-            padding: EdgeInsets.all(isTablet ? 24 : 20),
-            decoration: BoxDecoration(
-              color: Colors.red.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(isTablet ? 20 : 16),
-              border: Border.all(color: Colors.red.withOpacity(0.5)),
-            ),
-            child: Column(
-              children: [
-                Text(
-                  'You have used all 200 attempts for today.',
-                  style: GoogleFonts.poppins(
-                    fontSize: isTablet ? 18 : (isSmallDevice ? 14 : 16),
-                    color: Colors.white,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                SizedBox(height: isTablet ? 16 : 12),
-                Text(
-                  'Come back tomorrow for more attempts!',
-                  style: GoogleFonts.poppins(
-                    fontSize: isTablet ? 16 : (isSmallDevice ? 12 : 14),
-                    color: Colors.white70,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
+        ),
+        SizedBox(height: isTablet ? 24 : 16),
+        CircularProgressIndicator(
+          color: const Color(0xFFE91E63),
+          strokeWidth: isTablet ? 4 : 3,
+        ),
+        SizedBox(height: 20),
+        Text(
+          'If ad doesn\'t load in 10 seconds, you can continue playing',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            fontSize: isTablet ? 12 : 10,
+            color: Colors.white38,
           ),
-          SizedBox(height: isTablet ? 32 : 24),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF8B2635),
-              foregroundColor: Colors.white,
-              padding: EdgeInsets.symmetric(
-                horizontal: isTablet ? 40 : 32, 
-                vertical: isTablet ? 20 : 16,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(isTablet ? 16 : 12),
-              ),
-            ),
-            child: Text(
-              'Back to Games',
-              style: GoogleFonts.poppins(
-                fontSize: isTablet ? 18 : 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   @override
   void dispose() {
     ticker.dispose();
+  _rewardedAd?.dispose();
     super.dispose();
   }
 }

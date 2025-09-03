@@ -10,6 +10,7 @@ class PostCommentsPage extends StatefulWidget {
   final String currentUsername;
   final String currentUserRole;
   final Future<Map<String, dynamic>?> Function(String) getUserData;
+  final String currentUserId; 
 
   const PostCommentsPage({
     Key? key,
@@ -18,6 +19,7 @@ class PostCommentsPage extends StatefulWidget {
     required this.currentUsername,
     required this.currentUserRole,
     required this.getUserData,
+    required this.currentUserId,
   }) : super(key: key);
 
   @override
@@ -126,71 +128,134 @@ Future<void> _loadCommentsOnce() async {
   }
 }
 
-  // POST COMMENT - ADD TO LIST WITHOUT RELOADING
-  Future<void> _postComment() async {
-    final content = _commentController.text.trim();
-    
-    if (content.isEmpty) {
-      _showMessage('Please enter a comment', isError: true);
-      return;
+Future<void> _notifyPostComment() async {
+  try {
+    final postAuthorUsername = widget.post['authorUsername'];
+    if (postAuthorUsername == null || postAuthorUsername == widget.currentUsername) {
+      return; // Don't notify if it's the same user
     }
 
-    _dismissKeyboard();
+    // Get the post author's userId
+    final userData = await widget.getUserData(postAuthorUsername);
+    final authorUserId = userData?['userId'];
+    
+    if (authorUserId != null) {
+      await _createNotification(
+        recipientUserId: authorUserId,
+        title: 'New comment on your post',
+        body: '${widget.currentUsername} commented on your post',
+        type: 'post_comment',
+      );
+    }
+  } catch (e) {
+    debugPrint('Error notifying post comment: $e');
+  }
+}
 
-    try {
-      setState(() => _isPosting = true);
+Future<void> _notifyCommentReply(String parentCommentId, {required String replyId}) async {
+  try {
+    // Get the parent comment to find its author
+    final commentDoc = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('shitIWishIKnew')
+        .doc(widget.post['id'])
+        .collection('comments')
+        .doc(parentCommentId)
+        .get();
 
-      if (_replyingToCommentId != null) {
-        // Post as reply - add to existing comment without reload
-        final replyRef = await FirebaseFirestore.instance
-            .collection('communities')
-            .doc(widget.communityId)
-            .collection('shitIWishIKnew')
-            .doc(widget.post['id'])
-            .collection('comments')
-            .doc(_replyingToCommentId)
-            .collection('replies')
-            .add({
-          'content': content,
-          'authorUsername': widget.currentUsername,
-          'authorRole': widget.currentUserRole,
-          'replyingTo': _replyingToUsername,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-
-        // Add reply to existing comment in memory
-        _addReplyToComment(_replyingToCommentId!, replyRef.id, content);
-        // _scrollToComment(_replyingToCommentId!);
-      } else {
-        // Post as comment - add to list without reload
-        final commentRef = await FirebaseFirestore.instance
-            .collection('communities')
-            .doc(widget.communityId)
-            .collection('shitIWishIKnew')
-            .doc(widget.post['id'])
-            .collection('comments')
-            .add({
-          'content': content,
-          'authorUsername': widget.currentUsername,
-          'authorRole': widget.currentUserRole,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-
-        // Add comment to list in memory
-        _addCommentToList(commentRef.id, content);
-        // _scrollToComment(commentRef.id);
+    if (commentDoc.exists) {
+      final commentData = commentDoc.data() as Map<String, dynamic>;
+      final commentAuthorUsername = commentData['authorUsername'];
+      
+      if (commentAuthorUsername != null && commentAuthorUsername != widget.currentUsername) {
+        // Get the comment author's userId
+        final userData = await widget.getUserData(commentAuthorUsername);
+        final authorUserId = userData?['userId'];
+        
+        if (authorUserId != null) {
+          await _createNotification(
+            recipientUserId: authorUserId,
+            title: 'New reply to your comment',
+            body: '${widget.currentUsername} replied to your comment',
+            type: 'comment_reply',
+            commentId: parentCommentId,
+          );
+        }
       }
+    }
+  } catch (e) {
+    debugPrint('Error notifying comment reply: $e');
+  }
+}
 
-      _commentController.clear();
-      _cancelReply();
-    } catch (e) {
-      _showMessage('Error posting comment: $e', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() => _isPosting = false);
-      }
+  // POST COMMENT - ADD TO LIST WITHOUT RELOADING
+Future<void> _postComment() async {
+  final content = _commentController.text.trim();
+  
+  if (content.isEmpty) {
+    _showMessage('Please enter a comment', isError: true);
+    return;
+  }
+
+  _dismissKeyboard();
+
+  try {
+    setState(() => _isPosting = true);
+
+    if (_replyingToCommentId != null) {
+      // Post as reply
+      final replyRef = await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('shitIWishIKnew')
+          .doc(widget.post['id'])
+          .collection('comments')
+          .doc(_replyingToCommentId)
+          .collection('replies')
+          .add({
+        'content': content,
+        'authorUsername': widget.currentUsername,
+        'authorRole': widget.currentUserRole,
+        'replyingTo': _replyingToUsername,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // Add notification for comment author
+      await _notifyCommentReply(_replyingToCommentId!, replyId: replyRef.id);
+      
+      _addReplyToComment(_replyingToCommentId!, replyRef.id, content);
+    } else {
+      // Post as comment
+      final commentRef = await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('shitIWishIKnew')
+          .doc(widget.post['id'])
+          .collection('comments')
+          .add({
+        'content': content,
+        'authorUsername': widget.currentUsername,
+        'authorRole': widget.currentUserRole,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // Add notification for post author
+      await _notifyPostComment();
+      
+      _addCommentToList(commentRef.id, content);
+    }
+
+    _commentController.clear();
+    _cancelReply();
+  } catch (e) {
+    _showMessage('Error posting comment: $e', isError: true);
+  } finally {
+    if (mounted) {
+      setState(() => _isPosting = false);
     }
   }
+}
 
   // ADD COMMENT TO MEMORY - NO RELOAD
 void _addCommentToList(String commentId, String content) {
@@ -228,6 +293,35 @@ void _addReplyToComment(String commentId, String replyId, String content) {
       _comments[commentIndex]['replies'] = replies;
     }
   });
+}
+
+Future<void> _createNotification({
+  required String recipientUserId,
+  required String title,
+  required String body,
+  required String type,
+  String? memeId,
+  String? commentId,
+}) async {
+  try {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(recipientUserId)
+        .collection('notifications')
+        .add({
+      'type': type, // 'post_comment', 'comment_reply'
+      'title': title,
+      'message': body,
+      'senderName': widget.currentUsername,
+      'senderId': widget.currentUserRole, // You might want to add currentUserId to the widget
+      'postId': widget.post['id'],
+      'commentId': commentId,
+      'timestamp': FieldValue.serverTimestamp(),
+      'read': false,
+    });
+  } catch (e) {
+    debugPrint('Error creating notification: $e');
+  }
 }
 
   void _scrollToComment(String commentId) {
@@ -348,16 +442,16 @@ void _addReplyToComment(String commentId, String replyId, String content) {
         ScreenUtil.responsiveWidth(context, 0.05),
         16,
       ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF1B263B).withOpacity(0.3),
-            Colors.transparent,
-          ],
-        ),
-      ),
+      // decoration: BoxDecoration(
+      //   gradient: LinearGradient(
+      //     begin: Alignment.topLeft,
+      //     end: Alignment.bottomRight,
+      //     colors: [
+      //       const Color(0xFF1B263B).withOpacity(0.3),
+      //       Colors.transparent,
+      //     ],
+      //   ),
+      // ),
       child: Row(
         children: [
           GestureDetector(
@@ -631,35 +725,69 @@ void _addReplyToComment(String commentId, String replyId, String content) {
   }
 
   Widget _buildEmptyComments() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.comment_outlined, 
-            color: const Color(0xFFF59E0B), 
-            size: ScreenUtil.isTablet(context) ? 64 : 48,
-          ),
-          SizedBox(height: ScreenUtil.isTablet(context) ? 16 : 12),
-          Text(
-            'No comments yet',
-            style: GoogleFonts.poppins(
-              fontSize: ResponsiveFonts.title(context) - 4,
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+      final availableHeight = constraints.maxHeight;
+      
+      // Adaptive sizing for landscape mode
+      final iconSize = isLandscape 
+          ? (ScreenUtil.isTablet(context) ? 40.0 : 32.0)
+          : (ScreenUtil.isTablet(context) ? 64.0 : 48.0);
+      final spacing = isLandscape 
+          ? (ScreenUtil.isTablet(context) ? 10.0 : 8.0) 
+          : (ScreenUtil.isTablet(context) ? 16.0 : 12.0);
+      final titleSize = isLandscape 
+          ? (ResponsiveFonts.title(context) - 8) 
+          : (ResponsiveFonts.title(context) - 4);
+      final bodySize = isLandscape 
+          ? (ResponsiveFonts.body(context) - 2) 
+          : ResponsiveFonts.body(context);
+      
+      return Center(
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: availableHeight > 200 ? 150 : availableHeight * 0.8,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.comment_outlined, 
+                  color: const Color(0xFFF59E0B), 
+                  size: iconSize,
+                ),
+                SizedBox(height: spacing),
+                Text(
+                  'No comments yet',
+                  style: GoogleFonts.poppins(
+                    fontSize: titleSize,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: spacing / 2),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'Be the first to comment!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: bodySize, 
+                      color: Colors.white60
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          Text(
-            'Be the first to comment!',
-            style: GoogleFonts.poppins(
-              fontSize: ResponsiveFonts.body(context), 
-              color: Colors.white60
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildCommentInput() {
     return Container(

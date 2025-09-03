@@ -533,105 +533,142 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
   }
 
   void _showSuccessDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1A1A1A),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: BorderSide(
-              color: const Color(0xFFF7B42C).withOpacity(0.3),
-              width: 1,
-            ),
-          ),
-          content: Container(
-            width: MediaQuery.of(context).size.width * 0.8,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
-                    ),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.check,
-                    color: Colors.black87,
-                    size: 32,
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      return TweenAnimationBuilder(
+        duration: const Duration(milliseconds: 300),
+        tween: Tween<double>(begin: 0.0, end: 1.0),
+        builder: (context, double value, child) {
+          return Transform.scale(
+            scale: 0.8 + (0.2 * value),
+            child: Opacity(
+              opacity: value,
+              child: AlertDialog(
+                backgroundColor: const Color(0xFF1A1A1A),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  side: BorderSide(
+                    color: const Color(0xFFF7B42C).withOpacity(0.3),
+                    width: 1.5,
                   ),
                 ),
-                const SizedBox(height: 20),
-                Text(
-                  'Request Submitted!',
-                  style: GoogleFonts.poppins(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Your join request has been sent to the community moderators. You will be notified once it\'s reviewed.',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400,
-                    color: Colors.white70,
-                    height: 1.4,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context).pop(); // Close dialog
-                      widget.onRequestSubmitted(); // Navigate back to home
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                content: Container(
+                  width: MediaQuery.of(context).size.width * 0.8,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 8),
+                      // Animated check icon
+                      TweenAnimationBuilder(
+                        duration: Duration(milliseconds: 600),
+                        tween: Tween<double>(begin: 0.0, end: 1.0),
+                        builder: (context, double iconValue, child) {
+                          return Transform.scale(
+                            scale: iconValue,
+                            child: Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
+                                ),
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFF7B42C).withOpacity(0.4),
+                                    blurRadius: 20,
+                                    spreadRadius: 2,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.check,
+                                color: Colors.black87,
+                                size: 36,
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                      elevation: 0,
-                    ).copyWith(
-                      backgroundColor: WidgetStateProperty.all(Colors.transparent),
-                    ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(
-                        'OK',
+                      const SizedBox(height: 24),
+                      Text(
+                        'Request Submitted!',
                         style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
                         ),
                         textAlign: TextAlign.center,
                       ),
-                    ),
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          'Your join request has been sent to the community administrators. You will be notified once it\'s reviewed.',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w400,
+                            color: Colors.white70,
+                            height: 1.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      // Enhanced OK button
+                      SizedBox(
+                        width: double.infinity,
+                        child: _AnimatedButton(
+                          onPressed: () {
+                            HapticFeedback.lightImpact();
+                            Navigator.of(context).pop();
+                            widget.onRequestSubmitted();
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFF7B42C).withOpacity(0.3),
+                                  blurRadius: 12,
+                                  spreadRadius: 1,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            child: Text(
+                              'OK',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                                letterSpacing: 0.5,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
-        );
-      },
-    );
-  }
+          );
+        },
+      );
+    },
+  );
+}
+
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -887,14 +924,21 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Create Profile & Join',
-                            style: GoogleFonts.poppins(
-                              fontSize: MediaQuery.of(context).size.width * 0.055,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
+                          ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFFF9B233), Color(0xFFFF8008), Color(0xFFB95E00)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(bounds),
+              blendMode: BlendMode.srcIn,
+              child: Text(
+                'join community',
+                style: GoogleFonts.poppins(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
                           Text(
                             widget.communityName,
                             style: GoogleFonts.poppins(
@@ -940,7 +984,7 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'Complete your profile to join the community. All information will be reviewed by moderators.',
+                                  'Complete your profile to join the community. All information will be reviewed by administrators.',
                                   style: GoogleFonts.poppins(
                                     fontSize: 13,
                                     color: Colors.blue.shade300,
@@ -1065,7 +1109,7 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
                               color: Color(0xFFF7B42C),
                               size: 20,
                             ),
-                            hintText: '98765 43210',
+                            hintText: '+91 XXXXX XXXXX',
                             hintStyle: GoogleFonts.poppins(
                               color: Colors.white60,
                               fontSize: 14,
@@ -1106,6 +1150,41 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
                           validator: _validatePhoneNumber,
                         ),
 
+                        const SizedBox(height: 16),
+
+// Phone number info card
+Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.blue.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+  child: Row(
+    children: [
+      const Icon(
+        Icons.shield_outlined,
+        color: Colors.blue,
+        size: 20,
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Text(
+          'Providing your correct phone number is mandatory for community acceptance. This ensures we can verify your identity. Your data is safe with us.',
+          style: GoogleFonts.poppins(
+            fontSize: 12, 
+            color: Colors.blue,
+            height: 1.4,
+          ),
+        ),
+      ),
+    ],
+  ),
+),
+
                         const SizedBox(height: 30),
 
                         // Profile Photo Upload
@@ -1125,6 +1204,41 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
                           onTap: _pickIdCardImage,
                           icon: Icons.credit_card,
                         ),
+
+                        const SizedBox(height: 16),
+
+// ID card privacy info card
+Container(
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    color: Colors.green.withOpacity(0.1),
+    borderRadius: BorderRadius.circular(12),
+    border: Border.all(
+      color: Colors.green.withOpacity(0.3),
+      width: 1,
+    ),
+  ),
+  child: Row(
+    children: [
+      const Icon(
+        Icons.shield_outlined,
+        color: Colors.green,
+        size: 20,
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Text(
+          'For privacy protection, we recommend covering your address details while keeping other information visible. Your personal data is securely protected with us.',
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            color: Colors.green.shade300,
+            height: 1.4,
+          ),
+        ),
+      ),
+    ],
+  ),
+),
 
                         const SizedBox(height: 40),
 
@@ -1203,7 +1317,7 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
                                         ),
                                         const SizedBox(width: 8),
                                         Text(
-                                          'Submit Request',
+                                          'SUBMIT REQUEST',
                                           style: GoogleFonts.poppins(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w600,
@@ -1229,3 +1343,65 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
     );
   }
 }
+class _AnimatedButton extends StatefulWidget {
+  final VoidCallback onPressed;
+  final Widget child;
+
+  const _AnimatedButton({
+    required this.onPressed,
+    required this.child,
+  });
+
+  @override
+  State<_AnimatedButton> createState() => _AnimatedButtonState();
+}
+
+class _AnimatedButtonState extends State<_AnimatedButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 150),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.95,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        widget.onPressed();
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: widget.child,
+          );
+        },
+      ),
+    );
+  }
+}
+

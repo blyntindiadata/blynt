@@ -364,16 +364,16 @@ class _CreatePollPageState extends State<CreatePollPage> with TickerProviderStat
   Widget _buildHeader(double screenWidth, bool isTablet, bool isCompact) {
   return Container(
     padding: EdgeInsets.all(isTablet ? 24 : (isCompact ? 16 : 20)),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          const Color(0xFF1B263B).withOpacity(0.3),
-          Colors.transparent,
-        ],
-      ),
-    ),
+    // decoration: BoxDecoration(
+    //   gradient: LinearGradient(
+    //     begin: Alignment.topLeft,
+    //     end: Alignment.bottomRight,
+    //     colors: [
+    //       const Color(0xFF1B263B).withOpacity(0.3),
+    //       Colors.transparent,
+    //     ],
+    //   ),
+    // ),
     child: Row(
       children: [
         GestureDetector(

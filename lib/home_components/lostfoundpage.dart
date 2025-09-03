@@ -293,16 +293,16 @@ Widget build(BuildContext context) {
       isTablet ? 32 : 20, 
       isTablet ? 20 : 16
     ),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Colors.brown.shade900.withOpacity(0.3),
-          Colors.transparent,
-        ],
-      ),
-    ),
+    // decoration: BoxDecoration(
+    //   gradient: LinearGradient(
+    //     begin: Alignment.topLeft,
+    //     end: Alignment.bottomRight,
+    //     colors: [
+    //       Colors.brown.shade900.withOpacity(0.3),
+    //       Colors.transparent,
+    //     ],
+    //   ),
+    // ),
     child: Column(
       children: [
         Row(
@@ -366,7 +366,7 @@ Widget build(BuildContext context) {
                       colors: [Colors.brown.shade400, Colors.brown.shade700],
                     ).createShader(bounds),
                     child: Text(
-                      'lost & found',
+                      'where\'s my crap?',
                       style: GoogleFonts.dmSerifDisplay(
                         fontSize: isTablet ? 28 : 24,
                         fontWeight: FontWeight.bold,
@@ -376,7 +376,7 @@ Widget build(BuildContext context) {
                     ),
                   ),
                   Text(
-                    'helping each other find what matters',
+                    'just a fancy name for lost & found',
                     style: GoogleFonts.poppins(
                       fontSize: isTablet ? 14 : 12,
                       color: Colors.brown.shade200,
@@ -421,7 +421,7 @@ Widget build(BuildContext context) {
         fontSize: isTablet ? 16 : 14
       ),
       decoration: InputDecoration(
-        hintText: 'Search lost or found items...',
+        hintText: 'search...',
         hintStyle: GoogleFonts.poppins(color: Colors.white38),
         prefixIcon: Icon(
           Icons.search, 
@@ -542,27 +542,38 @@ Widget build(BuildContext context) {
               return _buildEmptyState(type);
             }
 
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: visibleItems.length,
-              itemBuilder: (context, index) {
-                final item = visibleItems[index];
-                print('Rendering item $index: ${item['title']} (${item['type']})');
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: LostFoundCard(
-                    item: item,
-                    currentUserId: widget.userId,
-                    currentUserRole: widget.userRole,
-                    onDelete: () => _deleteItem(item['id']),
-                    communityId: widget.communityId,
-                    getUserProfileImage: _getUserProfileImage,
-                    onNavigateToContact: _dismissKeyboard,
-                    isTablet: isTablet, 
-                  ),
-                );
-              },
-            );
+      return LayoutBuilder(
+  builder: (context, constraints) {
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isTablet = screenWidth > 600;
+    final padding = isLandscape 
+        ? (isTablet ? 12.0 : 8.0) 
+        : (isTablet ? 16.0 : 12.0);
+        
+    return ListView.builder(
+      padding: EdgeInsets.all(padding),
+      itemCount: visibleItems.length,
+      itemBuilder: (context, index) {
+        final item = visibleItems[index];
+        print('Rendering item $index: ${item['title']} (${item['type']})');
+        return Padding(
+          padding: EdgeInsets.only(bottom: isLandscape ? 6 : 8),
+          child: LostFoundCard(
+            item: item,
+            currentUserId: widget.userId,
+            currentUserRole: widget.userRole,
+            onDelete: () => _deleteItem(item['id']),
+            communityId: widget.communityId,
+            getUserProfileImage: _getUserProfileImage,
+            onNavigateToContact: _dismissKeyboard,
+            isTablet: isTablet, 
+          ),
+        );
+      },
+    );
+  },
+);
           },
         );
       },
@@ -570,49 +581,93 @@ Widget build(BuildContext context) {
   }
 
   Widget _buildEmptyState(String type) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            type == 'lost' ? Icons.search_off : Icons.search,
-            color: Colors.brown.shade300,
-            size: 64,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No ${type} items',
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+      final availableHeight = constraints.maxHeight;
+      final screenWidth = MediaQuery.of(context).size.width;
+      final isTablet = screenWidth > 600;
+      
+      // Adaptive sizing for landscape mode
+      final iconSize = isLandscape 
+          ? (isTablet ? 40.0 : 32.0)
+          : (isTablet ? 64.0 : 48.0);
+      final spacing = isLandscape 
+          ? (isTablet ? 10.0 : 8.0) 
+          : (isTablet ? 16.0 : 12.0);
+      final titleSize = isLandscape 
+          ? (isTablet ? 16.0 : 14.0) 
+          : (isTablet ? 18.0 : 16.0);
+      final subtitleSize = isLandscape 
+          ? (isTablet ? 12.0 : 10.0) 
+          : (isTablet ? 14.0 : 12.0);
+      
+      return Center(
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: availableHeight > 200 ? 150 : availableHeight * 0.8,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  type == 'lost' ? Icons.search_off : Icons.search,
+                  color: Colors.brown.shade300,
+                  size: iconSize,
+                ),
+                SizedBox(height: spacing),
+                Text(
+                  'No ${type} items',
+                  style: GoogleFonts.poppins(
+                    fontSize: titleSize,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: spacing / 2),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: isTablet ? 24 : 16),
+                  child: Text(
+                    type == 'lost' 
+                      ? 'Be the first to report a lost item!'
+                      : 'Be the first to report a found item!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: subtitleSize, 
+                      color: Colors.white60
+                    ),
+                  ),
+                ),
+                if (!isLandscape) ...[
+                  SizedBox(height: spacing),
+                  // Debug button - remove this after testing
+                  ElevatedButton(
+                    onPressed: () {
+                      print('Debug: Forcing reload...');
+                      _loadItems();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.brown.shade600,
+                    ),
+                    child: Text(
+                      'Debug: Reload Data',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: subtitleSize,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
-          Text(
-            type == 'lost' 
-              ? 'Be the first to report a lost item!'
-              : 'Be the first to report a found item!',
-            style: GoogleFonts.poppins(fontSize: 14, color: Colors.white60),
-          ),
-          const SizedBox(height: 20),
-          // Debug button - remove this after testing
-          ElevatedButton(
-            onPressed: () {
-              print('Debug: Forcing reload...');
-              _loadItems();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.brown.shade600,
-            ),
-            child: Text(
-              'Debug: Reload Data',
-              style: GoogleFonts.poppins(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildCreateFAB(bool isTablet) {
     return Container(

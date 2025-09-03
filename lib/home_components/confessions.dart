@@ -176,39 +176,66 @@ Future<void> _updateLastSeenTimestamp() async {
   }
 }
 
-  Future<void> _preloadUserReactions() async {
-  final snapshot = await FirebaseFirestore.instance
-      .collection('communities')
-      .doc(widget.communityId)
-      .collection('confessions')
-      .where('status', isEqualTo: 'approved')
-      .get();
-      
-  final Map<String, Map<String, bool>> reactions = {};
-  
-  for (var doc in snapshot.docs) {
-    final interactionDoc = await FirebaseFirestore.instance
+Future<void> _preloadUserReactions() async {
+  try {
+    final snapshot = await FirebaseFirestore.instance
         .collection('communities')
         .doc(widget.communityId)
         .collection('confessions')
-        .doc(doc.id)
-        .collection('interactions')
-        .doc(widget.userId)
+        .where('status', isEqualTo: 'approved')
         .get();
         
-    if (interactionDoc.exists) {
-      final type = interactionDoc.data()?['type'];
-      reactions[doc.id] = {
-        'liked': type == 'like',
-        'disliked': type == 'dislike',
-      };
-    }
-  }
-  
-  if (mounted) {
-    setState(() {
-      userReactions = reactions;
+    final Map<String, Map<String, bool>> reactions = {};
+    
+    // Process all interactions in parallel for better performance
+    final futures = snapshot.docs.map((doc) async {
+      try {
+        final interactionDoc = await FirebaseFirestore.instance
+            .collection('communities')
+            .doc(widget.communityId)
+            .collection('confessions')
+            .doc(doc.id)
+            .collection('interactions')
+            .doc(widget.userId)
+            .get();
+            
+        if (interactionDoc.exists) {
+          final type = interactionDoc.data()?['type'];
+          reactions[doc.id] = {
+            'liked': type == 'like',
+            'disliked': type == 'dislike',
+          };
+        } else {
+          // Explicitly set neutral state
+          reactions[doc.id] = {
+            'liked': false,
+            'disliked': false,
+          };
+        }
+      } catch (e) {
+        print('Error loading interaction for ${doc.id}: $e');
+        // Set neutral state on error
+        reactions[doc.id] = {
+          'liked': false,
+          'disliked': false,
+        };
+      }
     });
+    
+    await Future.wait(futures);
+    
+    if (mounted) {
+      setState(() {
+        userReactions = reactions;
+      });
+    }
+  } catch (e) {
+    print('Error preloading user reactions: $e');
+    if (mounted) {
+      setState(() {
+        userReactions = {}; // Set empty map to indicate loading completed
+      });
+    }
   }
 }
   Future<void> _logActivity(String confessionId, String activityType, Map<String, dynamic> data) async {
@@ -536,6 +563,33 @@ Future<void> _editConfession(String confessionId, String newContent) async {
       );
 
       await _checkRevealThreshold(confessionId);
+
+      if (!currentHasLiked && newLiked) {
+      // Get confession data to find the author
+      final confessionDoc = await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('confessions')
+          .doc(confessionId)
+          .get();
+      
+      if (confessionDoc.exists) {
+        final confessionData = confessionDoc.data()!;
+        final authorId = confessionData['authorId'] as String?;
+        
+        // Don't notify yourself
+        if (authorId != null && authorId != widget.userId) {
+          await _createNotification(
+            recipientUserId: authorId,
+            type: 'confession_like',
+            title: 'Someone liked your confession',
+            message: '${widget.username} liked your anonymous confession',
+            senderName: widget.username,
+            confessionId: confessionId,
+          );
+        }
+      }
+    }
     } catch (e) {
       print('[LIKE][ERROR] $e');
       userReactions[confessionId] = {
@@ -546,6 +600,7 @@ Future<void> _editConfession(String confessionId, String newContent) async {
     } finally {
       _setProcessingInteraction(confessionId, false);
     }
+
   }
 
   Future<void> _toggleDislike(String confessionId, bool currentHasLiked, bool currentHasDisliked) async {
@@ -834,6 +889,30 @@ Future<void> _reportConfession(String confessionId, String reason) async {
     });
     
     _showMessage('Identity reveal request sent');
+
+     final confessionDoc = await confessionRef.get();
+    if (confessionDoc.exists) {
+      final data = confessionDoc.data()!;
+      final authorId = data['authorId'] as String?;
+      
+      if (authorId != null && authorId != widget.userId) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(authorId)
+            .collection('notifications')
+            .add({
+          'type': 'identity_reveal_request',
+          'title': 'Identity reveal request',
+          'message': '${widget.username} wants to know your identity',
+          'senderName': widget.username,
+          'senderId': widget.userId,
+          'confessionId': confessionId,
+          'timestamp': FieldValue.serverTimestamp(),
+          'read': false,
+        });
+      }
+    }
+
     
     
   } catch (e) {
@@ -1204,6 +1283,7 @@ Widget _buildReceivedRequestsTab() {
         return _buildEmptyReceivedRequestsState();
       }
 
+      // INITIALIZE the variable properly
       final confessionsWithRequests = snapshot.data!.docs.where((doc) {
         final data = doc.data() as Map<String, dynamic>;
         final identityRequests = List<Map<String, dynamic>>.from(
@@ -1215,6 +1295,36 @@ Widget _buildReceivedRequestsTab() {
       if (confessionsWithRequests.isEmpty) {
         return _buildEmptyReceivedRequestsState();
       }
+
+      // SORT BY TIME: Most recent requests first
+      confessionsWithRequests.sort((a, b) {
+        final aData = a.data() as Map<String, dynamic>;
+        final bData = b.data() as Map<String, dynamic>;
+        
+        final aRequests = List<Map<String, dynamic>>.from(aData['identityRequests'] ?? []);
+        final bRequests = List<Map<String, dynamic>>.from(bData['identityRequests'] ?? []);
+        
+        // Get latest request timestamp for each confession
+        final aLatest = aRequests.isNotEmpty 
+            ? aRequests
+                .map((r) => r['timestamp'] as Timestamp?)
+                .where((t) => t != null)
+                .fold<Timestamp?>(null, (prev, curr) => 
+                  prev == null || curr!.compareTo(prev) > 0 ? curr : prev)
+            : null;
+        final bLatest = bRequests.isNotEmpty 
+            ? bRequests
+                .map((r) => r['timestamp'] as Timestamp?)
+                .where((t) => t != null)
+                .fold<Timestamp?>(null, (prev, curr) => 
+                  prev == null || curr!.compareTo(prev) > 0 ? curr : prev)
+            : null;
+            
+        if (aLatest == null && bLatest == null) return 0;
+        if (aLatest == null) return 1;
+        if (bLatest == null) return -1;
+        return bLatest.compareTo(aLatest); // Most recent first
+      });
 
       return ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1255,6 +1365,7 @@ Widget _buildSentRequestsTab() {
         return _buildEmptySentRequestsState();
       }
 
+      // INITIALIZE the variable properly
       final confessionsWithUserRequests = snapshot.data!.docs.where((doc) {
         final data = doc.data() as Map<String, dynamic>;
         final identityRequests = List<Map<String, dynamic>>.from(
@@ -1266,6 +1377,32 @@ Widget _buildSentRequestsTab() {
       if (confessionsWithUserRequests.isEmpty) {
         return _buildEmptySentRequestsState();
       }
+
+      // SORT BY TIME: Most recent requests first
+      confessionsWithUserRequests.sort((a, b) {
+        final aData = a.data() as Map<String, dynamic>;
+        final bData = b.data() as Map<String, dynamic>;
+        
+        final aRequests = List<Map<String, dynamic>>.from(aData['identityRequests'] ?? []);
+        final bRequests = List<Map<String, dynamic>>.from(bData['identityRequests'] ?? []);
+        
+        final aUserRequest = aRequests.firstWhere(
+          (req) => req['requesterId'] == widget.userId, 
+          orElse: () => <String, dynamic>{}
+        );
+        final bUserRequest = bRequests.firstWhere(
+          (req) => req['requesterId'] == widget.userId, 
+          orElse: () => <String, dynamic>{}
+        );
+        
+        final aTime = aUserRequest['timestamp'] as Timestamp?;
+        final bTime = bUserRequest['timestamp'] as Timestamp?;
+        
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        return bTime.compareTo(aTime); // Most recent first
+      });
 
       return ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1333,16 +1470,16 @@ Widget _buildEmptyRequestsState() {
 Widget _buildHeader() {
   return Container(
     padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Colors.white.withOpacity(0.05),
-          Colors.transparent,
-        ],
-      ),
-    ),
+    // decoration: BoxDecoration(
+    //   gradient: LinearGradient(
+    //     begin: Alignment.topLeft,
+    //     end: Alignment.bottomRight,
+    //     colors: [
+    //       Colors.white.withOpacity(0.05),
+    //       Colors.transparent,
+    //     ],
+    //   ),
+    // ),
     child: Row(
       children: [
         // ADD THIS BACK BUTTON
@@ -1395,7 +1532,7 @@ Widget _buildHeader() {
                 ).createShader(bounds),
                 blendMode: BlendMode.srcIn,
                 child: Text(
-                  'confession vault',
+                  'the confession vault',
                   style: GoogleFonts.dmSerifDisplay(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -1637,147 +1774,168 @@ Widget _buildTabBar() {
     },
   );
 }
-  Widget _buildConfessionsList() {
-    return Column(
-      children: [
-        _buildFilters(),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-  stream: _getConfessionsStream().distinct(),
-  builder: (context, snapshot) {
-    if (snapshot.connectionState == ConnectionState.waiting) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF8B5CF6)));
-    }
-
-    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-      return _buildEmptyState();
-    }
-
-    // Filter and sort in memory
-    // Filter and sort in memory
-var docs = snapshot.data!.docs.where((doc) {
-  final data = doc.data() as Map<String, dynamic>;
-  final visibility = data['visibility'] as Map<String, dynamic>?;
-  
-  if (visibility != null) {
-    final visibilityType = visibility['type'] as String?;
-    final allowedYears = List<String>.from(visibility['allowedYears'] ?? []);
-    final allowedBranches = List<String>.from(visibility['allowedBranches'] ?? []);
-    
-    // Check if user meets visibility criteria
-    if (visibilityType != 'everyone') {
-      final userYear = _userProfile?['year']?.toString();
-      final userBranch = _userProfile?['branch']?.toString();
-      
-      if (visibilityType == 'year' && !allowedYears.contains(userYear)) {
-        return false;
-      }
-      if (visibilityType == 'branch' && !allowedBranches.contains(userBranch)) {
-        return false;
-      }
-      if (visibilityType == 'branch_year' && 
-          (!allowedYears.contains(userYear) || !allowedBranches.contains(userBranch))) {
-        return false;
-      }
-    }
-  }
-  
-  // Apply user-selected filters
-  if (_selectedYear != 'all') {
-    final allowedYears = List<String>.from(data['visibility']?['allowedYears'] ?? []);
-    if (allowedYears.isNotEmpty && !allowedYears.contains(_selectedYear)) {
-      return false;
-    }
-  }
-  
-  if (_selectedBranch != 'all') {
-    final allowedBranches = List<String>.from(data['visibility']?['allowedBranches'] ?? []);
-    if (allowedBranches.isNotEmpty && !allowedBranches.contains(_selectedBranch)) {
-      return false;
-    }
-  }
-  
-  return true;
-}).toList();
-    
-    // Sort based on selected filter
-    docs.sort((a, b) {
-      final aData = a.data() as Map<String, dynamic>;
-      final bData = b.data() as Map<String, dynamic>;
-      
-      switch (_selectedFilter) {
-        case 'popular':
-          final aLikes = aData['likes'] ?? 0;
-          final bLikes = bData['likes'] ?? 0;
-          return bLikes.compareTo(aLikes);
-          
-        case 'controversial':
-          final aComments = aData['commentsCount'] ?? 0;
-          final bComments = bData['commentsCount'] ?? 0;
-          return bComments.compareTo(aComments);
-          
-        default: // 'recent'
-          final aTime = aData['approvedAt'] as Timestamp?;
-          final bTime = bData['approvedAt'] as Timestamp?;
-          
-          if (aTime == null && bTime == null) return 0;
-          if (aTime == null) return 1;
-          if (bTime == null) return -1;
-          
-          return bTime.compareTo(aTime);
-      }
-    });
-
-   return ListView.builder(
-  controller: _scrollController,
-  padding: const EdgeInsets.all(16),
-  itemCount: docs.length,
-  itemBuilder: (context, index) {
-    final doc = docs[index];
-    
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _getUpdatedConfessionData(doc),
-      builder: (context, confessionSnapshot) {
-        if (!confessionSnapshot.hasData) {
-          return Container(
-            height: 200,
-            margin: const EdgeInsets.only(bottom: 16),
+Widget _buildShimmerEffect() {
+  return ListView.builder(
+    padding: const EdgeInsets.all(16),
+    itemCount: 3, // Show 3 shimmer cards
+    itemBuilder: (context, index) => Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header shimmer
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 120,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      width: 80,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Content shimmer
+          ...List.generate(3, (i) => Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            width: double.infinity,
+            height: 14,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(20),
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(4),
             ),
-            child: const Center(
-              child: CircularProgressIndicator(color: Color(0xFF8B5CF6)),
-            ),
-          );
-        }
-        
-        return ConfessionCard(
-          key: ValueKey(doc.id),
-          confession: confessionSnapshot.data!,
-          confessionId: doc.id,
-          currentUserId: widget.userId,
-          currentUsername: widget.username,
-          userRole: widget.userRole,
-          communityId: widget.communityId,
-          onLike: _toggleLike,
-          onDislike: _toggleDislike,
-          onReport: _reportConfession,
-          onRequestIdentity: _requestIdentityReveal,
-          onHandleIdentityRequest: _handleIdentityRequest,
-          userReactions: userReactions,
-          lastSeenTimestamp: _lastSeenTimestamp,
-        );
-      },
-    );
-  },
-);
-  },
-)
+          )),
+          const SizedBox(height: 16),
+          // Actions shimmer
+          Row(
+            children: List.generate(4, (i) => Container(
+              margin: const EdgeInsets.only(right: 12),
+              width: 60,
+              height: 32,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(16),
+              ),
+            )),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+Widget _buildConfessionsList() {
+  return Column(
+    children: [
+      _buildFilters(),
+      Expanded(
+        child: StreamBuilder<QuerySnapshot>(
+          stream: _getConfessionsStream().distinct(),
+          builder: (context, snapshot) {
+            // Show shimmer while loading OR if userReactions haven't loaded
+            if (snapshot.connectionState == ConnectionState.waiting || 
+                userReactions.isEmpty && snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+              return _buildShimmerEffect();
+            }
+
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              return _buildEmptyState();
+            }
+
+            final processedDocs = _processConfessionsData(snapshot.data!.docs);
+
+            return ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(16),
+              itemCount: processedDocs.length,
+              key: ValueKey('confessions_${processedDocs.length}_${userReactions.length}'),
+              itemBuilder: (context, index) {
+                final doc = processedDocs[index];
+                
+                return ConfessionCard(
+                  key: ValueKey('confession_${doc.id}'),
+                  confession: doc.data() as Map<String, dynamic>,
+                  confessionId: doc.id,
+                  currentUserId: widget.userId,
+                  currentUsername: widget.username,
+                  userRole: widget.userRole,
+                  communityId: widget.communityId,
+                  onLike: _toggleLike,
+                  onDislike: _toggleDislike,
+                  onReport: _reportConfession,
+                  onRequestIdentity: _requestIdentityReveal,
+                  onHandleIdentityRequest: _handleIdentityRequest,
+                  userReactions: userReactions,
+                  lastSeenTimestamp: _lastSeenTimestamp,
+                );
+              },
+            );
+          },
         ),
-      ],
-    );
+      ),
+    ],
+  );
+}
+
+Future<void> _createNotification({
+  required String recipientUserId,
+  required String type,
+  required String title,
+  required String message,
+  required String senderName,
+  String? confessionId,
+}) async {
+  try {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(recipientUserId)
+        .collection('notifications')
+        .add({
+      'type': type,
+      'title': title,
+      'message': message,
+      'senderName': senderName,
+      'senderId': widget.userId,
+      'confessionId': confessionId,
+      'timestamp': FieldValue.serverTimestamp(),
+      'read': false,
+    });
+  } catch (e) {
+    print('Error creating notification: $e');
   }
+}
 
 Widget _buildFilters() {
   return Container(
@@ -2025,6 +2183,86 @@ Stream<QuerySnapshot> _getConfessionsStream() {
 
   return query.snapshots();
 }
+
+List<QueryDocumentSnapshot> _processConfessionsData(List<QueryDocumentSnapshot> docs) {
+  // Filter documents based on visibility and user filters
+  var filteredDocs = docs.where((doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final visibility = data['visibility'] as Map<String, dynamic>?;
+    
+    // Check visibility permissions
+    if (visibility != null) {
+      final visibilityType = visibility['type'] as String?;
+      final allowedYears = List<String>.from(visibility['allowedYears'] ?? []);
+      final allowedBranches = List<String>.from(visibility['allowedBranches'] ?? []);
+      
+      // Check if user meets visibility criteria
+      if (visibilityType != 'everyone') {
+        final userYear = _userProfile?['year']?.toString();
+        final userBranch = _userProfile?['branch']?.toString();
+        
+        if (visibilityType == 'year' && !allowedYears.contains(userYear)) {
+          return false;
+        }
+        if (visibilityType == 'branch' && !allowedBranches.contains(userBranch)) {
+          return false;
+        }
+        if (visibilityType == 'branch_year' && 
+            (!allowedYears.contains(userYear) || !allowedBranches.contains(userBranch))) {
+          return false;
+        }
+      }
+    }
+    
+    // Apply user-selected filters
+    if (_selectedYear != 'all') {
+      final allowedYears = List<String>.from(data['visibility']?['allowedYears'] ?? []);
+      if (allowedYears.isNotEmpty && !allowedYears.contains(_selectedYear)) {
+        return false;
+      }
+    }
+    
+    if (_selectedBranch != 'all') {
+      final allowedBranches = List<String>.from(data['visibility']?['allowedBranches'] ?? []);
+      if (allowedBranches.isNotEmpty && !allowedBranches.contains(_selectedBranch)) {
+        return false;
+      }
+    }
+    
+    return true;
+  }).toList();
+  
+  // Sort based on selected filter
+  filteredDocs.sort((a, b) {
+    final aData = a.data() as Map<String, dynamic>;
+    final bData = b.data() as Map<String, dynamic>;
+    
+    switch (_selectedFilter) {
+      case 'popular':
+        final aLikes = aData['likes'] ?? 0;
+        final bLikes = bData['likes'] ?? 0;
+        return bLikes.compareTo(aLikes);
+        
+      case 'controversial':
+        final aComments = aData['commentsCount'] ?? 0;
+        final bComments = bData['commentsCount'] ?? 0;
+        return bComments.compareTo(aComments);
+        
+      default: // 'recent'
+        final aTime = aData['approvedAt'] as Timestamp?;
+        final bTime = bData['approvedAt'] as Timestamp?;
+        
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        
+        return bTime.compareTo(aTime);
+    }
+  });
+
+  return filteredDocs;
+}
+
 
   Widget _buildEmptyState() {
     return Center(
@@ -9175,6 +9413,36 @@ Future<void> _postComment({String? audioPath}) async {
         duration: const Duration(milliseconds: 400),
         curve: Curves.easeOut,
       );
+    }
+
+    final confessionDoc = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('confessions')
+        .doc(widget.confessionId)
+        .get();
+    
+    if (confessionDoc.exists) {
+      final confessionData = confessionDoc.data()!;
+      final authorId = confessionData['authorId'] as String?;
+      
+      // Don't notify yourself
+      if (authorId != null && authorId != widget.userId) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(authorId)
+            .collection('notifications')
+            .add({
+          'type': 'confession_comment',
+          'title': 'New comment on your confession',
+          'message': '${widget.username} commented on your confession',
+          'senderName': widget.username,
+          'senderId': widget.userId,
+          'confessionId': widget.confessionId,
+          'timestamp': FieldValue.serverTimestamp(),
+          'read': false,
+        });
+      }
     }
       
   } catch (e) {

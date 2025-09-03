@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:startup/home_components/2048.dart';
 import 'package:startup/home_components/bird.dart';
+import 'package:startup/home_components/past_leaderboard.dart';
 import 'package:startup/home_components/puzzle.dart';
 import 'package:startup/home_components/timer_game.dart';
 import 'package:startup/home_components/user_profile_screen.dart';
@@ -37,9 +38,31 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _initAnimations();
   }
+
+  // Add this method to check if there's an active leaderboard
+Future<Map<String, dynamic>?> _getCurrentLeaderboard() async {
+  try {
+    print('Checking leaderboard for community: ${widget.communityId}'); // Debug line
+    final doc = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('meta')
+        .doc('current_leaderboard')
+        .get();
+    
+    print('Document exists: ${doc.exists}'); // Debug line
+    if (doc.exists) {
+      print('Document data: ${doc.data()}'); // Debug line
+      return doc.data() as Map<String, dynamic>;
+    }
+  } catch (e) {
+    print('Error getting current leaderboard: $e');
+  }
+  return null;
+}
 
   void _initAnimations() {
     _fadeController = AnimationController(
@@ -64,36 +87,179 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0D1B2A),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF4A1625),
-              Color(0xFF2D0F1A),
-              Color(0xFF1A0B11),
-              Colors.black,
-            ],
+    body: Container(
+  decoration: const BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Color(0xFF4A1625),
+        Color(0xFF2D0F1A),
+        Color(0xFF1A0B11),
+        Colors.black,
+      ],
+    ),
+  ),
+  child: SafeArea(
+    child: Column(
+      children: [
+        _buildHeader(),
+        _buildTabBar(),
+        _buildCurrentLeaderboardDisplay(MediaQuery.of(context).size.width),
+        // Add reset button for admins
+       FutureBuilder<bool>(
+  future: _checkIfAdmin(),
+  builder: (context, snapshot) {
+    if (snapshot.data == true) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: _buildLeaderboardButton(MediaQuery.of(context).size.width), // Changed method name
+      );
+    }
+    return const SizedBox.shrink();
+  },
+),
+        Expanded(
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: _buildTabBarView(),
           ),
         ),
-        child: SafeArea(
+      ],
+    ),
+  ),
+),
+    );
+    
+  }
+
+  Widget _buildLeaderboardButton(double screenWidth) {
+  return FutureBuilder<Map<String, dynamic>?>(
+    future: _getCurrentLeaderboard(),
+    builder: (context, snapshot) {
+      final hasActiveLeaderboard = snapshot.data != null;
+      final leaderboardName = snapshot.data?['name'] ?? '';
+      
+      if (hasActiveLeaderboard) {
+        // Show Archive button
+        return Container(
+          margin: EdgeInsets.symmetric(horizontal: screenWidth < 360 ? 12 : 16),
           child: Column(
             children: [
-              _buildHeader(),
-              _buildTabBar(),
-              Expanded(
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: _buildTabBarView(),
+              // Current leaderboard info
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4A1625).withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF8B2635).withOpacity(0.5)),
+                ),
+                child: Text(
+                  'Active: $leaderboardName',
+                  style: GoogleFonts.poppins(
+                    color: const Color(0xFFE91E63),
+                    fontSize: screenWidth < 600 ? 12 : 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Archive button
+              ElevatedButton.icon(
+                onPressed: () => _showArchiveConfirmation(leaderboardName),
+                icon: const Icon(Icons.archive, color: Colors.white),
+                label: Text(
+                  'Archive Leaderboard',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8B2635),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
+        );
+      } else {
+        // Show Create button
+        return Container(
+          margin: EdgeInsets.symmetric(horizontal: screenWidth < 360 ? 12 : 16),
+          child: ElevatedButton.icon(
+            onPressed: _showCreateLeaderboardDialog,
+            icon: const Icon(Icons.add, color: Colors.white),
+            label: Text(
+              'Create Leaderboard',
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF8B2635),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        );
+      }
+    },
+  );
+}
+
+Widget _buildCurrentLeaderboardDisplay(double screenWidth) {
+  return FutureBuilder<Map<String, dynamic>?>(
+    future: _getCurrentLeaderboard(),
+    builder: (context, snapshot) {
+      if (snapshot.data != null) {
+        final leaderboardName = snapshot.data!['name'] ?? '';
+        final createdAt = snapshot.data!['createdAt'] as Timestamp?;
+        
+        return Container(
+          margin: EdgeInsets.symmetric(horizontal: screenWidth < 360 ? 12 : 16),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF4A1625).withOpacity(0.2),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFF8B2635).withOpacity(0.3)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.emoji_events,
+                color: const Color(0xFFE91E63),
+                size: screenWidth < 600 ? 16 : 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Current: $leaderboardName',
+                  style: GoogleFonts.poppins(
+                    color: const Color(0xFFE91E63),
+                    fontSize: screenWidth < 600 ? 12 : 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      return const SizedBox.shrink();
+    },
+  );
+}
 
   Widget _buildHeader() {
     return LayoutBuilder(
@@ -125,33 +291,40 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
             horizontalPadding,
             verticalPadding * 0.75,
           ),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                const Color(0xFF4A1625).withOpacity(0.3),
-                Colors.transparent,
-              ],
-            ),
-          ),
+          // decoration: BoxDecoration(
+          //   gradient: LinearGradient(
+          //     begin: Alignment.topLeft,
+          //     end: Alignment.bottomRight,
+          //     colors: [
+          //       const Color(0xFF4A1625).withOpacity(0.3),
+          //       Colors.transparent,
+          //     ],
+          //   ),
+          // ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // Back button
-              SizedBox(
-                width: iconSize + 8,
-                height: iconSize + 8,
-                child: IconButton(
-                  padding: EdgeInsets.zero,
-                  icon: Icon(
-                    Icons.arrow_back,
-                    color: Colors.white,
-                    size: iconSize,
-                  ),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ),
+             // Back button
+GestureDetector(
+  onTap: () => Navigator.pop(context),
+  child: Container(
+    padding: EdgeInsets.all(isVerySmall ? 8 : (isSmall ? 10 : (isMedium ? 11 : (isTablet ? 12 : 16)))),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(isVerySmall ? 12 : (isSmall ? 14 : (isMedium ? 15 : (isTablet ? 16 : 18)))),
+      border: Border.all(
+        color: const Color(0xFF8B2635).withOpacity(0.3),
+        width: 1,
+      ),
+    ),
+    child: Icon(
+      Icons.arrow_back_ios_new,
+      color: Colors.white,
+      size: iconSize,
+    ),
+  ),
+),
               
               SizedBox(width: spacing * 0.5),
               
@@ -187,7 +360,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-  'gaming arena',
+  'gamer\'s garage',
   style: GoogleFonts.dmSerifDisplay(
     fontSize: titleFontSize,
     fontWeight: FontWeight.bold,
@@ -203,7 +376,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
 ),
                     if (subtitleFontSize > 0)
                       Text(
-                        'compete and climb',
+                        'not so fancy games - but you\'ll like \'em',
                         style: GoogleFonts.poppins(
                           fontSize: subtitleFontSize,
                           color: const Color(0xFFE91E63),
@@ -235,7 +408,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
         
         double horizontalMargin = isVerySmall ? 12 : (isSmall ? 16 : (isMedium ? 20 : (isTablet ? 24 : 32)));
         double verticalMargin = isVerySmall ? 6 : (isSmall ? 8 : (isMedium ? 9 : (isTablet ? 10 : 12)));
-        double fontSize = isVerySmall ? 11 : (isSmall ? 12 : (isMedium ? 13 : (isTablet ? 14 : 18)));
+        double fontSize = isVerySmall ? 10 : (isSmall ? 11 : (isMedium ? 12 : (isTablet ? 13 : 17)));
         
         return Container(
           margin: EdgeInsets.symmetric(
@@ -270,6 +443,7 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
             tabs: const [
               Tab(text: 'Games'),
               Tab(text: 'Leaderboard'),
+              Tab(text: 'Archives'),
             ],
           ),
         );
@@ -291,10 +465,415 @@ class _GamesPageState extends State<GamesPage> with TickerProviderStateMixin {
           userId: widget.userId,
           username: widget.username,
         ),
+         PastLeaderboardsScreen(
+    communityId: widget.communityId,
+    userId: widget.userId,
+    username: widget.username,
+  ),
       ],
     );
   }
+
+Widget _buildReaderboardButton(double screenWidth) {
+  return FutureBuilder<Map<String, dynamic>?>(
+    future: _getCurrentLeaderboard(),
+    builder: (context, snapshot) {
+      final hasActiveLeaderboard = snapshot.data != null;
+      final leaderboardName = snapshot.data?['name'] ?? '';
+      
+      if (hasActiveLeaderboard) {
+        // Show Archive button
+        return Container(
+          margin: EdgeInsets.symmetric(horizontal: screenWidth < 360 ? 12 : 16),
+          child: Column(
+            children: [
+              // Current leaderboard info
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4A1625).withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF8B2635).withOpacity(0.5)),
+                ),
+                child: Text(
+                  'Active: $leaderboardName',
+                  style: GoogleFonts.poppins(
+                    color: const Color(0xFFE91E63),
+                    fontSize: screenWidth < 600 ? 12 : 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Archive button
+              ElevatedButton.icon(
+                onPressed: () => _showArchiveConfirmation(leaderboardName),
+                icon: const Icon(Icons.archive, color: Colors.white),
+                label: Text(
+                  'Archive Leaderboard',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8B2635),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      } else {
+        // Show Create button
+        return Container(
+          margin: EdgeInsets.symmetric(horizontal: screenWidth < 360 ? 12 : 16),
+          child: ElevatedButton.icon(
+            onPressed: _showCreateLeaderboardDialog,
+            icon: const Icon(Icons.add, color: Colors.white),
+            label: Text(
+              'Create Leaderboard',
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF8B2635),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        );
+      }
+    },
+  );
 }
+
+Future<void> _showCreateLeaderboardDialog() async {
+  final TextEditingController nameController = TextEditingController();
+  
+  final result = await showDialog<Map<String, dynamic>>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: const Color(0xFF2D0F1A),
+      title: Text(
+        'Create New Leaderboard',
+        style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Creating a new leaderboard will archive the current scores and reset all points to 0.',
+            style: GoogleFonts.poppins(color: Colors.white70, fontSize: 14),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Leaderboard Name:',
+            style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: nameController,
+            style: GoogleFonts.poppins(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: 'e.g., "Winter Championship 2024"',
+              hintStyle: GoogleFonts.poppins(color: Colors.white54),
+              filled: true,
+              fillColor: const Color(0xFF4A1625).withOpacity(0.3),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: const Color(0xFF8B2635).withOpacity(0.5)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: const Color(0xFF8B2635).withOpacity(0.5)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Color(0xFFE91E63)),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.white70)),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final name = nameController.text.trim();
+            if (name.isNotEmpty) {
+              Navigator.of(context).pop({
+                'confirmed': true,
+                'name': name,
+              });
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Please enter a leaderboard name'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8B2635)),
+          child: Text('Create', style: GoogleFonts.poppins(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+
+ if (result != null && result['confirmed'] == true && result['name'] != null) {
+  await _createNewLeaderboard(result['name'] as String);
+}
+}
+
+Future<void> _createNewLeaderboard(String leaderboardName) async {
+  try {
+    // Show loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFFE91E63)),
+      ),
+    );
+
+    // Create current leaderboard document
+    await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('meta')
+        .doc('current_leaderboard')
+        .set({
+      'name': leaderboardName,
+      'createdAt': FieldValue.serverTimestamp(),
+      'createdBy': widget.username,
+      'isActive': true,
+    });
+
+    // Hide loading and show success
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Leaderboard "$leaderboardName" created! Players can now start scoring.',
+        style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+        backgroundColor: const Color(0xFF8B2635),
+      ),
+    );
+    
+    // Refresh the current view
+    setState(() {});
+  } catch (e) {
+    Navigator.of(context).pop(); // Hide loading
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error creating leaderboard: $e'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
+Future<void> _showArchiveConfirmation(String currentLeaderboardName) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: const Color(0xFF2D0F1A),
+      title: Text(
+        'Archive Leaderboard',
+        style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+      ),
+      content: Text(
+        'This will archive "$currentLeaderboardName" with the current top 10 scores and reset all scores to 0. You can then create a new leaderboard.',
+        style: GoogleFonts.poppins(color: Colors.white70),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.white70)),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8B2635)),
+          child: Text('Archive', style: GoogleFonts.poppins(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed == true) {
+    await _archiveCurrentLeaderboard(currentLeaderboardName);
+  }
+}
+Future<void> _archiveCurrentLeaderboard(String leaderboardName) async {
+  try {
+    // Show loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFFE91E63)),
+      ),
+    );
+
+    // Get current top 10 scores
+    final currentScores = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('game_scores')
+        .orderBy('totalPoints', descending: true)
+        .limit(10)
+        .get();
+
+    if (currentScores.docs.isNotEmpty) {
+      // Generate unique archive ID
+      final now = DateTime.now();
+      final archiveId = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}_${now.millisecondsSinceEpoch}';
+
+      final batch = FirebaseFirestore.instance.batch();
+      
+      // Create the archive document with metadata
+      final archiveDocRef = FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('leaderboard_archives')
+          .doc(archiveId);
+      
+      batch.set(archiveDocRef, {
+        'name': leaderboardName,
+        'archivedAt': FieldValue.serverTimestamp(),
+        'totalUsers': currentScores.docs.length,
+        'archivedBy': widget.username,
+        'leaderboardId': archiveId,
+      });
+      
+      // Archive top 10 with their ranks
+      for (int i = 0; i < currentScores.docs.length; i++) {
+        final doc = currentScores.docs[i];
+        final data = doc.data();
+        data['rank'] = i + 1;
+        data['archivedAt'] = FieldValue.serverTimestamp();
+        data['leaderboardName'] = leaderboardName;
+        
+        final archiveRef = FirebaseFirestore.instance
+            .collection('communities')
+            .doc(widget.communityId)
+            .collection('leaderboard_archives')
+            .doc(archiveId)
+            .collection('game_scores')
+            .doc(doc.id);
+        
+        batch.set(archiveRef, data);
+      }
+
+      // Reset all current scores to 0
+      final allScores = await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('game_scores')
+          .get();
+
+      for (final doc in allScores.docs) {
+        final resetRef = FirebaseFirestore.instance
+            .collection('communities')
+            .doc(widget.communityId)
+            .collection('game_scores')
+            .doc(doc.id);
+        
+        batch.update(resetRef, {
+          'totalPoints': 0,
+          'timerPoints': 0,
+          'puzzlePoints': 0,
+          '2048Points': 0,
+          'planePoints': 0,
+          'lastResetAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      // Remove current leaderboard document
+      final currentLeaderboardRef = FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('meta')
+          .doc('current_leaderboard');
+      
+      batch.delete(currentLeaderboardRef);
+
+      await batch.commit();
+      
+      // Hide loading and show success
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Leaderboard "$leaderboardName" archived successfully! Archived ${currentScores.docs.length} users.',
+           style:GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+          backgroundColor: const Color(0xFF8B2635),
+        ),
+      );
+      
+      // Refresh the current view
+      setState(() {});
+    }
+  } catch (e) {
+    Navigator.of(context).pop(); // Hide loading
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error archiving leaderboard: $e'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
+// Add method to check if user is admin
+Future<bool> _checkIfAdmin() async {
+  try {
+    // Check if user is admin/manager/moderator
+    final memberDoc = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('members')
+        .where('username', isEqualTo: widget.username)
+        .limit(1)
+        .get();
+    
+    if (memberDoc.docs.isNotEmpty) {
+      final role = memberDoc.docs.first.data()['role'] as String?;
+      return role == 'admin' || role == 'manager' || role == 'moderator';
+    }
+    
+    // Also check trio collection
+    final trioDoc = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('trio')
+        .where('username', isEqualTo: widget.username)
+        .limit(1)
+        .get();
+    
+    if (trioDoc.docs.isNotEmpty) {
+      final role = trioDoc.docs.first.data()['role'] as String?;
+      return role == 'admin' || role == 'manager' || role == 'moderator';
+    }
+    
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+}
+
+
 
 // Number counter widget for scrolling effect
 class NumberCounterWidget extends StatefulWidget {
@@ -556,8 +1135,8 @@ class _GamesListViewState extends State<GamesListView> {
       children: [
         _buildGameCard(
           context,
-          'Perfect Timer',
-          'Hit exactly 10 seconds',
+          'lord of the ticks',
+          'the only chance to hit on a 10 in life',
           Icons.timer,
           gameColors['timer']!,
           userScores['timerPoints'] ?? 0,
@@ -573,29 +1152,10 @@ class _GamesListViewState extends State<GamesListView> {
           ).then((_) => _loadUserData()),
           screenWidth,
         ),
-        _buildGameCard(
+             _buildGameCard(
           context,
-          'Logic Stack',
-          'Solve the puzzle quickly',
-          Icons.extension,
-          gameColors['puzzle']!,
-          userScores['puzzlePoints'] ?? 0,
-          () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => LogicStackGame(
-                communityId: widget.communityId,
-                userId: widget.userId,
-                username: widget.username,
-              ),
-            ),
-          ).then((_) => _loadUserData()),
-          screenWidth,
-        ),
-        _buildGameCard(
-          context,
-          'Ruby 2048',
-          'Merge tiles to 2048',
+          'swipe & merge',
+          'build numbers not your gpa',
           Icons.grid_4x4,
           gameColors['2048']!,
           userScores['2048Points'] ?? 0,
@@ -613,8 +1173,8 @@ class _GamesListViewState extends State<GamesListView> {
         ),
         _buildGameCard(
           context,
-          'Ruby Bird',
-          'Navigate through obstacles',
+          'mayday!',
+          'avoid buildings the way she avoided you',
           Icons.flight,
           gameColors['plane']!,
           userScores['planePoints'] ?? 0,
@@ -630,6 +1190,26 @@ class _GamesListViewState extends State<GamesListView> {
           ).then((_) => _loadUserData()),
           screenWidth,
         ),
+        _buildGameCard(
+          context,
+          'letters of fury',
+          'your assignments wish they were this fun',
+          Icons.extension,
+          gameColors['puzzle']!,
+          userScores['puzzlePoints'] ?? 0,
+          () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => LogicStackGame(
+                communityId: widget.communityId,
+                userId: widget.userId,
+                username: widget.username,
+              ),
+            ),
+          ).then((_) => _loadUserData()),
+          screenWidth,
+        ),
+   
       ],
     );
   }
@@ -826,10 +1406,10 @@ class _GamesListViewState extends State<GamesListView> {
       runSpacing: spacing,
       alignment: WrapAlignment.center,
       children: [
-        _buildScoreBadge('Timer', userScores['timerPoints'] ?? 0, gameColors['timer']!, screenWidth),
-        _buildScoreBadge('Puzzle', userScores['puzzlePoints'] ?? 0, gameColors['puzzle']!, screenWidth),
-        _buildScoreBadge('2048', userScores['2048Points'] ?? 0, gameColors['2048']!, screenWidth),
-        _buildScoreBadge('Plane', userScores['planePoints'] ?? 0, gameColors['plane']!, screenWidth),
+        _buildScoreBadge('LOTT', userScores['timerPoints'] ?? 0, gameColors['timer']!, screenWidth),
+        _buildScoreBadge('Swipe&Merge', userScores['2048Points'] ?? 0, gameColors['2048']!, screenWidth),
+        _buildScoreBadge('Mayday!', userScores['planePoints'] ?? 0, gameColors['plane']!, screenWidth),
+        _buildScoreBadge('LOF', userScores['puzzlePoints'] ?? 0, gameColors['puzzle']!, screenWidth),
       ],
     );
   }
@@ -1940,3 +2520,4 @@ class _CasinoCounterWidgetState extends State<CasinoCounterWidget>
     );
   }
 }
+

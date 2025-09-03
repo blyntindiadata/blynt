@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:startup/home_components/anonymous_chat_landing.dart';
 import 'package:startup/home_components/barter_system_page.dart';
+import 'package:startup/home_components/birthdays_screen.dart';
 import 'package:startup/home_components/chat_screen.dart';
 import 'package:startup/home_components/chat_service.dart';
 import 'package:startup/home_components/committee_mainpage.dart';
@@ -11,13 +12,16 @@ import 'package:startup/home_components/doubt_screen.dart';
 import 'package:startup/home_components/games_screen.dart';
 import 'package:startup/home_components/lostfoundpage.dart';
 import 'package:startup/home_components/manage_members.dart';
+import 'package:startup/home_components/manage_notice.dart';
 import 'package:startup/home_components/no_limits_scree.dart';
-import 'package:startup/home_components/onetruthtwolies.dart';
+import 'package:startup/home_components/notice_carousel.dart';
+import 'package:startup/home_components/notification_service.dart';
 import 'package:startup/home_components/polls_screen.dart';
 import 'package:startup/home_components/shitiwishiknew.dart';
 import 'package:startup/home_components/thegarage.dart';
 import 'package:startup/home_components/your_neighbourhood.dart';
 import 'pending_requests_page.dart';
+import 'package:flutter/services.dart';
 
 class CommunityDashboard extends StatefulWidget {
   final String communityId;
@@ -46,179 +50,379 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
   List<Map<String, dynamic>> todaysBirthdays = [];
   List<Map<String, dynamic>> filteredZones = [];
   bool isSearching = false;
+  bool hasError = false;
 
-  final List<Map<String, dynamic>> allZones = [
-    {'name': 'the confession vault', 'desc': 'we know you cannot face that baddie💔🥀...', 'icon': Icons.lock_outline, 'colors': [Color(0xFF8B5CF6), Color(0xFFA855F7)], 'type': 'confessions'},
-    {'name': 'no limits', 'desc': 'show your college who is the goat🐐', 'icon': Icons.all_inclusive, 'colors': [Color(0xFFEF4444), Color(0xFFDC2626)], 'type': 'no_limits'},
-    {'name': 'shit i wish i knew', 'desc': 'do not make the mistake that your parents did', 'icon': Icons.lightbulb_outline, 'colors': [Color(0xFFF59E0B), Color(0xFFD97706)], 'type': 'shit_i_wish'},
-    {'name': 'barter?\nhell yeah', 'desc': 'trade skills, not drugs', 'icon': Icons.swap_horiz, 'colors': [Color(0xFF10B981), Color(0xFF059669)], 'type': 'barter'},
-    {'name': 'anonymous chatting', 'desc': 'the most peaceful section in blynt', 'icon': Icons.people_sharp, 'colors': [Color(0xFF3B82F6), Color(0xFF2563EB)], 'type': 'chat'},
-    {'name': 'startup garage', 'desc': 'here comes the mature talk🍻', 'icon': Icons.rocket_launch, 'colors': [Color(0xFF6366F1), Color(0xFF4F46E5)], 'type': 'garage'},
-    {'name': 'doubts', 'desc': 'make projects, either increase aura or get roa...', 'icon': Icons.construction, 'colors': [Color(0xFFEC4899), Color(0xFFDB2777)], 'type': 'doubts'},
-    {'name': 'lost it', 'desc': 'you might find your lost tiffin but not her', 'icon': Icons.search_off, 'colors': [Color.fromARGB(255, 102, 75, 63), Color.fromARGB(255, 103, 62, 44)], 'type': 'lost'},
-    {'name': 'the polls', 'desc': 'organize mass bunks', 'icon': Icons.poll_sharp, 'colors': [Color(0xFF1976D2), Color(0xFF64B5F6)], 'type': 'polls'},
-    {'name': 'your neighbourhood', 'desc': 'places where you go', 'icon': Icons.location_on_outlined, 'colors': [Color(0xFF84CC16), Color(0xFF65A30D)], 'type': 'neighbourhood'},
-    {'name': 'gaming arena', 'desc': 'yeah that boring ones', 'icon': Icons.theater_comedy, 'colors': [const Color(0xFFE91E63), const Color(0xFF8B2635)], 'type': 'shows'},
-    {'name': 'committees', 'desc': 'ah shit here we go again', 'icon': Icons.groups_outlined, 'colors': [Color(0xFF0EA5E9), Color(0xFF0284C7)], 'type': 'committees'},
-  ];
+
+  Future<T?> _safeAsyncOperation<T>(Future<T> Function() operation) async {
+    try {
+      return await operation();
+    } catch (e) {
+      print('Safe async operation error: $e');
+      if (mounted) {
+        setState(() {
+          hasError = true;
+        });
+      }
+      return null;
+    }
+  }
+
+final List<Map<String, dynamic>> allZones = [
+  {'name': 'anonymous\nchatting', 'desc': 'wait till the identities get revealed🥷', 'icon': Icons.people_sharp, 'colors': [Color(0xFF3B82F6), Color(0xFF2563EB)], 'type': 'chat'},
+  {'name': 'gamer\'s garage', 'desc': 'show your college who is the goat🐐', 'icon': Icons.theater_comedy, 'colors': [const Color(0xFFE91E63), const Color(0xFF8B2635)], 'type': 'shows'},
+  {'name': 'the\nconfession\nvault', 'desc': 'simp your crush, roast your ex🍻', 'icon': Icons.lock_outline, 'colors': [Color(0xFF8B5CF6), Color(0xFFA855F7)], 'type': 'confessions'},
+  {'name': 'sh*t i\nwish i\nknew', 'desc': 'do not make the mistake that your parents did', 'icon': Icons.lightbulb_outline, 'colors': [Color(0xFFF59E0B), Color(0xFFD97706)], 'type': 'shit_i_wish'},
+  {'name': 'no limits', 'desc': '1 banger away from getting her number🗿', 'icon': Icons.all_inclusive, 'colors': [Color(0xFFEF4444), Color(0xFFDC2626)], 'type': 'no_limits'},
+  {'name': 'where\'s my crap', 'desc': 'you might find your lost tiffin but not her🥀', 'icon': Icons.search_off, 'colors': [Color.fromARGB(255, 102, 75, 63), Color.fromARGB(255, 103, 62, 44)], 'type': 'lost'},
+  {'name': 'chamber of \nconfusions', 'desc': 'coz your prof doesn\'t know sh*t', 'icon': Icons.construction, 'colors': [const Color(0xFF4A4A4A), const Color(0xFF2C2C2C)], 'type': 'doubts'},
+  {'name': 'barter?\nhell yeah', 'desc': 'trade skills, not drugs', 'icon': Icons.swap_horiz, 'colors': [Color(0xFF10B981), Color(0xFF059669)], 'type': 'barter'},
+  {'name': 'the polls', 'desc': 'one vote that ruins everything ', 'icon': Icons.poll_sharp, 'colors': [Color(0xFF1976D2), Color(0xFF64B5F6)], 'type': 'polls'},
+  {'name': 'your\nneighbourhood', 'desc': 'because the best places aren\'t marked', 'icon': Icons.location_on_outlined, 'colors': [Color(0xFF84CC16), Color(0xFF65A30D)], 'type': 'neighbourhood'},
+  // {'name': 'committees', 'desc': 'ah shit here we go again', 'icon': Icons.groups_outlined, 'colors': [Color(0xFF0EA5E9), Color(0xFF0284C7)], 'type': 'committees'},
+];
 
   @override
   void initState() {
     super.initState();
+    SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
     _loadCommunityData();
     _loadUsername();
     _loadTodaysBirthdays();
     filteredZones = List.from(allZones);
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    await _safeAsyncOperation(() async {
+      await _loadCommunityData();
+      await _loadUsername();
+      await _loadTodaysBirthdays();
+      if (mounted) {
+        setState(() {
+          filteredZones = List.from(allZones);
+        });
+      }
+    });
   }
 
   Future<void> _loadUsername() async {
     try {
+      if (widget.userId.isEmpty) return;
+      
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(widget.userId)
           .get();
       
-      if (userDoc.exists) {
-        setState(() {
-          _username = userDoc.data()?['username'] ?? userDoc.data()?['name'] ?? 'Anonymous';
-        });
+      if (userDoc.exists && userDoc.data() != null) {
+        if (mounted) {
+          setState(() {
+            _username = userDoc.data()?['username'] ?? 
+                      userDoc.data()?['name'] ?? 
+                      'Anonymous';
+          });
+        }
       }
     } catch (e) {
       print('Error loading username: $e');
-      _username = 'Anonymous';
+      if (mounted) {
+        setState(() {
+          _username = 'Anonymous';
+        });
+      }
     }
   }
 
   Future<void> _loadTodaysBirthdays() async {
     try {
-      // Get today's date in MM-DD format
+      if (widget.communityId.isEmpty) return;
+
       final today = DateTime.now();
       final todayString = '${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       
-      // Get all users who have birthdays today and are in this community
-      final usersQuery = await FirebaseFirestore.instance
-          .collection('users')
-          .where('communityId', isEqualTo: widget.communityId)
-          .get();
+      // Get community members with error handling
+      final List<String> memberIds = [];
+
+      try {
+        // Get trio members
+        final trioQuery = await FirebaseFirestore.instance
+            .collection('communities')
+            .doc(widget.communityId)
+            .collection('trio')
+            .where('status', isEqualTo: 'active')
+            .get();
+
+        memberIds.addAll(
+          trioQuery.docs
+            .where((doc) => doc.data()['userId'] != null)
+            .map((doc) => doc.data()['userId'] as String)
+        );
+
+        // Get regular members
+        final membersQuery = await FirebaseFirestore.instance
+            .collection('communities')
+            .doc(widget.communityId)
+            .collection('members')
+            .where('status', isEqualTo: 'active')
+            .get();
+
+        memberIds.addAll(
+          membersQuery.docs
+            .where((doc) => doc.data()['userId'] != null)
+            .map((doc) => doc.data()['userId'] as String)
+        );
+      } catch (e) {
+        print('Error fetching community members: $e');
+        return;
+      }
+
+      // Remove duplicates
+      final uniqueMemberIds = memberIds.toSet().toList();
 
       List<Map<String, dynamic>> birthdayUsers = [];
 
-      // Check each user's birthday
-      for (var userDoc in usersQuery.docs) {
-        final userData = userDoc.data();
+      // Check each member's birthday
+      for (String memberId in uniqueMemberIds) {
+        if (memberId.isEmpty) continue;
         
-        // Check both 'dob' and 'birthday' fields for compatibility
-        final dob = userData['dob'] as String?;
-        final birthday = userData['birthday'] as String?;
-        final birthdayField = dob ?? birthday;
-        
-        if (birthdayField != null) {
-          try {
-            // Parse birthday/dob string (format: 2006-08-14T00:00:00.000 or 2006-08-14)
-            final birthdayDate = DateTime.parse(birthdayField);
-            final birthdayString = '${birthdayDate.month.toString().padLeft(2, '0')}-${birthdayDate.day.toString().padLeft(2, '0')}';
-            
-            if (birthdayString == todayString) {
-              final age = today.year - birthdayDate.year;
-              birthdayUsers.add({
-                'userId': userDoc.id,
-                'username': userData['username'] ?? 'Unknown',
-                'firstName': userData['firstName'] ?? 'User',
-                'lastName': userData['lastName'] ?? '',
-                'age': age,
-              });
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(memberId)
+              .get();
+
+          if (userDoc.exists && userDoc.data() != null) {
+            final userData = userDoc.data()!;
+            final dob = userData['dob'] as String?;
+            final birthday = userData['birthday'] as String?;
+            final birthdayField = dob ?? birthday;
+
+            if (birthdayField != null && birthdayField.isNotEmpty) {
+              try {
+                final birthdayDate = DateTime.parse(birthdayField);
+                final birthdayString = '${birthdayDate.month.toString().padLeft(2, '0')}-${birthdayDate.day.toString().padLeft(2, '0')}';
+
+                if (birthdayString == todayString) {
+                  final age = today.year - birthdayDate.year;
+                  birthdayUsers.add({
+                    'userId': memberId,
+                    'username': userData['username'] ?? 'Unknown',
+                    'firstName': userData['firstName'] ?? 'User',
+                    'lastName': userData['lastName'] ?? '',
+                    'age': age,
+                  });
+                }
+              } catch (e) {
+                print('Error parsing birthday for user $memberId: $e');
+              }
             }
-          } catch (e) {
-            print('Error parsing birthday for user ${userDoc.id}: $e');
           }
+        } catch (e) {
+          print('Error fetching user data for $memberId: $e');
         }
       }
 
-      setState(() {
-        todaysBirthdays = birthdayUsers;
-      });
+      if (mounted) {
+        setState(() {
+          todaysBirthdays = birthdayUsers;
+        });
+      }
     } catch (e) {
       print('Error loading birthdays: $e');
     }
   }
 
-  Future<void> _sendBirthdayWish(String recipientId, String recipientName) async {
+  Future<void> _testLocalNotifications() async {
+    print('🧪 Testing local notifications from UI...');
+    
+    // Check if notifications are enabled
+    final bool enabled = await NotificationService.areNotificationsEnabled();
+    print('📱 Notifications enabled: $enabled');
+    
+    if (!enabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Notifications are disabled. Please enable in device settings.',
+              style: GoogleFonts.poppins(color: Colors.white),
+            ),
+            backgroundColor: Colors.orange.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            action: SnackBarAction(
+              label: 'Settings',
+              textColor: Colors.white,
+              onPressed: () {
+                // You can add code to open app settings here
+                print('📱 User should go to app settings to enable notifications');
+              },
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     try {
-      // Get sender's name
-      final senderDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.userId)
-          .get();
+      // await NotificationService.testNotification();
       
-      final senderName = senderDoc.exists 
-          ? (senderDoc.data()?['firstName'] ?? _username ?? 'Someone')
-          : 'Someone';
-
-      // Add notification to recipient
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(recipientId)
-          .collection('notifications')
-          .add({
-        'type': 'birthday_wish',
-        'title': 'Birthday Wish 🎉',
-        'message': '$senderName sent you birthday wishes!',
-        'senderName': senderName,
-        'senderId': widget.userId,
-        'timestamp': FieldValue.serverTimestamp(),
-        'read': false,
-      });
-
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Birthday wish sent to $recipientName! 🎉',
-            style: GoogleFonts.poppins(color: Colors.white),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Test notification sent! Check your notification panel.',
+              style: GoogleFonts.poppins(color: Colors.white),
+            ),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          backgroundColor: Colors.green.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      );
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Failed to send birthday wish',
-            style: GoogleFonts.poppins(color: Colors.white),
+      print('❌ Test notification failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Test notification failed: $e',
+              style: GoogleFonts.poppins(color: Colors.white),
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          backgroundColor: Colors.red.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      );
+        );
+      }
     }
   }
 
-  void _filterZones(String query) {
-    setState(() {
-      if (query.isEmpty) {
-        filteredZones = List.from(allZones);
-        isSearching = false;
-      } else {
-        isSearching = true;
-        filteredZones = allZones.where((zone) {
-          return zone['name'].toString().toLowerCase().contains(query.toLowerCase()) ||
-                 zone['desc'].toString().toLowerCase().contains(query.toLowerCase());
-        }).toList();
+  Future<void> _sendBirthdayWish(String recipientId, String recipientName) async {
+    print('🎂 === BIRTHDAY WISH DEBUG START ===');
+    print('🎂 Recipient ID: $recipientId');
+    print('🎂 Recipient Name: $recipientName');
+    print('🎂 Sender ID: ${widget.userId}');
+    print('🎂 Community ID: ${widget.communityId}');
+
+    try {
+      print('🎂 Step 1: Getting sender name...');
+      
+      // Get sender name
+      String senderName = _username ?? 'Someone';
+      try {
+        final senderDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.userId)
+            .get();
+        
+        if (senderDoc.exists && senderDoc.data() != null) {
+          senderName = senderDoc.data()!['firstName'] ?? senderName;
+          print('🎂 ✅ Sender name found: $senderName');
+        } else {
+          print('🎂 ⚠️ Sender document not found, using: $senderName');
+        }
+      } catch (e) {
+        print('🎂 ❌ Error getting sender name: $e');
       }
-    });
+
+      print('🎂 Step 2: Calling NotificationService.sendBirthdayWish...');
+
+      // Send birthday wish using unified service
+      await NotificationService.sendBirthdayWish(
+        senderId: widget.userId,
+        senderName: senderName,
+        recipientId: recipientId,
+        recipientName: recipientName,
+        communityId: widget.communityId,
+      );
+
+      print('🎂 ✅ NotificationService.sendBirthdayWish completed successfully');
+
+      // Show success message
+      if (mounted) {
+        print('🎂 Step 3: Showing success SnackBar...');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.cake, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Birthday wish sent to $recipientName! 🎉',
+                    style: GoogleFonts.poppins(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFF6A4C93),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+        print('🎂 ✅ Success SnackBar shown');
+      }
+
+      print('🎂 === BIRTHDAY WISH DEBUG END (SUCCESS) ===');
+
+    } catch (e) {
+      print('🎂 ❌ Birthday wish failed at top level: $e');
+      print('🎂 ❌ Error type: ${e.runtimeType}');
+      print('🎂 ❌ Stack trace: ${StackTrace.current}');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send birthday wish: $e'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+      
+      print('🎂 === BIRTHDAY WISH DEBUG END (FAILED) ===');
+    }
   }
+
+ void _filterZones(String query) {
+  setState(() {
+    if (query.isEmpty) {
+      filteredZones = List.from(allZones);
+      isSearching = false;
+    } else {
+      isSearching = true;
+      filteredZones = allZones.where((zone) {
+        return zone['name'].toString().toLowerCase().contains(query.toLowerCase()) ||
+               zone['desc'].toString().toLowerCase().contains(query.toLowerCase());
+      }).toList();
+    }
+  });
+}
 
   // Public method to be called from Home widget
   void filterZones(String query) {
     _filterZones(query);
   }
+
+
+  void _navigateToViewNotices() {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => ManageNoticesScreen(
+        communityId: widget.communityId,
+        userId: widget.userId,
+        userRole: widget.userRole,
+        username: _username ?? 'Anonymous',
+      ),
+    ),
+  );
+}
 
   void _navigateToZone(Map<String, dynamic> zone) async {
     if (zone['type'] == 'confessions') {
@@ -422,222 +626,6 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
     }
   }
 
-  void _showBirthdayDialog() {
-    if (todaysBirthdays.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'No birthdays today! 🎂',
-            style: GoogleFonts.poppins(color: Colors.white),
-          ),
-          backgroundColor: Colors.blue.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1A1A1A),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: BorderSide(
-              color: const Color(0xFF4299E1).withOpacity(0.3),
-              width: 1.5,
-            ),
-          ),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF4299E1), Color(0xFF3182CE)],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.cake,
-                  color: Colors.white,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Today\'s Birthdays 🎉',
-                  style: GoogleFonts.poppins(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: todaysBirthdays.length,
-              itemBuilder: (context, index) {
-                final user = todaysBirthdays[index];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        const Color(0xFF2D3748).withOpacity(0.8),
-                        const Color(0xFF4A5568).withOpacity(0.6),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: const Color(0xFF4299E1).withOpacity(0.2),
-                      width: 1,
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 50,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF4299E1), Color(0xFF3182CE)],
-                            ),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.2),
-                              width: 2,
-                            ),
-                          ),
-                          child: Center(
-                            child: Text(
-                              user['firstName'][0].toUpperCase(),
-                              style: GoogleFonts.inter(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 20,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${user['firstName']} ${user['lastName']}'.trim(),
-                                style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Turns ${user['age']} today',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 14,
-                                  color: Colors.white70,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (user['userId'] != widget.userId)
-                          SizedBox(
-                            height: 36,
-                            child: ElevatedButton(
-                              onPressed: () {
-                                _sendBirthdayWish(user['userId'], user['firstName']);
-                                Navigator.of(context).pop();
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF4299E1),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                elevation: 2,
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.cake_outlined, size: 16),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Wish',
-                                    style: GoogleFonts.poppins(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
-                        else
-                          Container(
-                            height: 36,
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: const Color(0xFF4299E1).withOpacity(0.5),
-                                width: 1.5,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Center(
-                              child: Text(
-                                'You 🎂',
-                                style: GoogleFonts.poppins(
-                                  color: const Color(0xFF4299E1),
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(
-                'Close',
-                style: GoogleFonts.poppins(
-                  color: Colors.white60,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   Future<bool> _isLastAdmin() async {
     if (widget.userRole != 'admin') return false;
     
@@ -667,7 +655,7 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
       final batch = FirebaseFirestore.instance.batch();
       
       // Delete all subcollections
-      final subcollections = ['trio', 'members', 'join_requests', 'left_members', 'removed_members', 'banned_users'];
+      final subcollections = ['trio', 'members', 'join_requests', 'left_members', 'removed_members', 'banned_users', 'notices'];
       
       for (String subcollection in subcollections) {
         final snapshot = await FirebaseFirestore.instance
@@ -789,189 +777,615 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
     });
   }
 
-  Future<void> _leaveCommunity() async {
-    // Check if this is the last admin
-    final isLastAdmin = await _isLastAdmin();
-    
-    final String title = isLastAdmin ? 'Dissolve Community' : 'Leave Community';
-    final String content = isLastAdmin 
-        ? 'You are the last admin. Leaving will dissolve the entire community and delete all data. This action cannot be undone.'
-        : 'Are you sure you want to leave this community? This action cannot be undone.';
-    
-    final bool? confirm = await showDialog<bool>(
+Future<void> _leaveCommunity() async {
+  final screenWidth = MediaQuery.of(context).size.width;
+  final isPhone = screenWidth < 600;
+final isTablet = screenWidth >= 600 && screenWidth < 1024;
+final isDesktop = screenWidth >= 1024;
+final textScale = MediaQuery.of(context).textScaleFactor.clamp(0.8, 1.3);
+  
+  // Check if user has administrative privileges
+  final List<String> restrictedRoles = ['admin', 'moderator', 'manager'];
+  
+  if (restrictedRoles.contains(widget.userRole.toLowerCase())) {
+    // Show dialog explaining why they can't leave
+    showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
+        return SafeArea(
+          child: AlertDialog(
+            backgroundColor: const Color(0xFF1A1A1A),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: Colors.orange.withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: isTablet ? 24 : 16,
+              vertical: isTablet ? 20 : 16,
+            ),
+            titlePadding: EdgeInsets.fromLTRB(
+              isTablet ? 24 : 16,
+              isTablet ? 20 : 16,
+              isTablet ? 24 : 16,
+              0,
+            ),
+            actionsPadding: EdgeInsets.fromLTRB(
+              isTablet ? 24 : 16,
+              0,
+              isTablet ? 24 : 16,
+              isTablet ? 16 : 12,
+            ),
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.admin_panel_settings,
+                  color: Colors.orange,
+                  size: isPhone ? 18 : isTablet ? 22 : 24,
+                ),
+                SizedBox(width: isTablet ? 8 : 6),
+                Flexible(
+                  child: Text(
+                    'Cannot Leave Community',
+                    style: GoogleFonts.poppins(
+                      fontSize: isTablet ? 18 : 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.6,
+                  maxWidth: isPhone ? screenWidth * 0.9 : isTablet ? 400 : 450,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'As a ${widget.userRole.toLowerCase()}, you cannot leave the community directly.',
+                      style: GoogleFonts.poppins(
+                        fontSize: isTablet ? 14 : 13,
+                        color: Colors.white70,
+                        height: 1.4,
+                      ),
+                    ),
+                    SizedBox(height: isTablet ? 16 : 12),
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.all(isTablet ? 16 : 12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.orange.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'To leave this community:',
+                            style: GoogleFonts.poppins(
+                              fontSize: isTablet ? 14 : 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.orange,
+                            ),
+                          ),
+                          SizedBox(height: isTablet ? 8 : 6),
+                          Text(
+                            '1. Talk to your assigned blynt representative regarding the leaving clause\n\n'
+                            '2. Then you can leave the community',
+                            style: GoogleFonts.poppins(
+                              fontSize: isTablet ? 13 : 11,
+                              color: Colors.white60,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: isTablet ? 16 : 12),
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isTablet ? 12 : 8,
+                        vertical: isTablet ? 8 : 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.blue.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.blue,
+                            size: isTablet ? 16 : 14,
+                          ),
+                          SizedBox(width: isTablet ? 8 : 6),
+                          Expanded(
+                            child: Text(
+                              'This ensures the community always has proper leadership.',
+                              style: GoogleFonts.poppins(
+                                fontSize: isTablet ? 12 : 10,
+                                color: Colors.blue,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: TextButton.styleFrom(
+                    backgroundColor: Colors.orange.withOpacity(0.1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: Colors.orange.withOpacity(0.3),
+                        width: 1,
+                      ),
+                    ),
+                    padding: EdgeInsets.symmetric(
+                      vertical: isTablet ? 16 : 12,
+                    ),
+                  ),
+                  child: Text(
+                    'I Understand',
+                    style: GoogleFonts.poppins(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.w600,
+                      fontSize: (isPhone ? 14 : isTablet ? 16 : 18) * textScale,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    return; // Exit early, don't proceed with leaving
+  }
+
+  // Original leave community logic for regular members
+  final String title = 'Leave Community';
+  final String content = 'Are you sure you want to leave this community? This action cannot be undone.';
+  
+  final bool? confirm = await showDialog<bool>(
+    context: context,
+    builder: (BuildContext context) {
+      return SafeArea(
+        child: AlertDialog(
           backgroundColor: const Color(0xFF1A1A1A),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(
-              color: (isLastAdmin ? Colors.orange : Colors.red).withOpacity(0.3),
+              color: Colors.red.withOpacity(0.3),
               width: 1,
             ),
           ),
-          title: Text(
-            title,
-            style: GoogleFonts.poppins(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: isTablet ? 24 : 16,
+            vertical: isTablet ? 20 : 16,
           ),
-          content: Text(
-            content,
-            style: GoogleFonts.poppins(
-              fontSize: 14,
-              color: Colors.white70,
-              height: 1.4,
+          titlePadding: EdgeInsets.fromLTRB(
+            isTablet ? 24 : 16,
+            isTablet ? 20 : 16,
+            isTablet ? 24 : 16,
+            0,
+          ),
+          actionsPadding: EdgeInsets.fromLTRB(
+            isTablet ? 24 : 16,
+            0,
+            isTablet ? 24 : 16,
+            isTablet ? 16 : 12,
+          ),
+          title: Row(
+            children: [
+              Icon(
+                Icons.exit_to_app,
+                color: Colors.red,
+                size: isPhone ? 18 : isTablet ? 22 : 24,
+              ),
+              SizedBox(width: isTablet ? 8 : 6),
+              Flexible(
+                child: Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontSize: isTablet ? 20 : 18,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.4,
+                maxWidth: screenWidth > 400 ? 300 : screenWidth * 0.8,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(isTablet ? 16 : 12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.red.withOpacity(0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.red,
+                          size: isTablet ? 20 : 18,
+                        ),
+                        SizedBox(width: isTablet ? 12 : 8),
+                        Expanded(
+                          child: Text(
+                            content,
+                            style: GoogleFonts.poppins(
+                              fontSize: isTablet ? 14 : 13,
+                              color: Colors.white70,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(
-                'Cancel',
-                style: GoogleFonts.poppins(
-                  color: Colors.white60,
-                  fontWeight: FontWeight.w500,
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.white.withOpacity(0.1),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: Colors.white.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      padding: EdgeInsets.symmetric(
+                        vertical: isTablet ? 16 : 12,
+                      ),
+                    ),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white60,
+                        fontWeight: FontWeight.w500,
+                        fontSize: (isPhone ? 14 : isTablet ? 16 : 18) * textScale,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(
-                isLastAdmin ? 'Dissolve' : 'Leave',
-                style: GoogleFonts.poppins(
-                  color: isLastAdmin ? Colors.orange : Colors.red,
-                  fontWeight: FontWeight.w600,
+                SizedBox(width: isTablet ? 16 : 12),
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.red.withOpacity(0.1),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: Colors.red.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      padding: EdgeInsets.symmetric(
+                        vertical: isTablet ? 16 : 12,
+                      ),
+                    ),
+                    child: Text(
+                      'Leave',
+                      style: GoogleFonts.poppins(
+                        color: Colors.red,
+                        fontWeight: FontWeight.w600,
+                        fontSize: isTablet ? 16 : 14,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ],
+        ),
+      );
+    },
+  );
+
+  if (confirm == true) {
+    // Show loading indicator
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return SafeArea(
+            child: AlertDialog(
+              backgroundColor: const Color(0xFF1A1A1A),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              contentPadding: EdgeInsets.all(isTablet ? 32 : 24),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    color: const Color(0xFFF7B42C),
+                    strokeWidth: isTablet ? 3 : 2,
+                  ),
+                  SizedBox(height: isTablet ? 20 : 16),
+                  Text(
+                    'Leaving community...',
+                    style: GoogleFonts.poppins(
+                      color: Colors.white70,
+                      fontSize: (isPhone ? 14 : isTablet ? 16 : 18) * textScale,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    // Existing leave community logic for regular members
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+
+      // Remove from trio subcollection
+      final trioQuery = await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('trio')
+          .where('userId', isEqualTo: widget.userId)
+          .get();
+
+      for (var doc in trioQuery.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // Remove from members subcollection
+      final membersQuery = await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('members')
+          .where('userId', isEqualTo: widget.userId)
+          .get();
+
+      for (var doc in membersQuery.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // Remove from old community_members collection (if exists)
+      final memberQuery = await FirebaseFirestore.instance
+          .collection('community_members')
+          .where('userId', isEqualTo: widget.userId)
+          .where('communityId', isEqualTo: widget.communityId)
+          .get();
+
+      for (var doc in memberQuery.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // Update member count in community
+      final communityRef = FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId);
+      batch.update(communityRef, {
+        'memberCount': FieldValue.increment(-1),
+      });
+
+      // Add to left_members log for tracking
+      final leftMemberRef = FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('left_members')
+          .doc();
+      batch.set(leftMemberRef, {
+        'userId': widget.userId,
+        'leftAt': FieldValue.serverTimestamp(),
+        'previousRole': widget.userRole,
+      });
+
+      // Update user's community mapping
+      final userRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId);
+      batch.update(userRef, {
+        'communityId': FieldValue.delete(),
+      });
+
+      await batch.commit();
+
+      // Close loading dialog
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+
+      widget.onRefresh();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  Icons.check_circle_outline,
+                  color: Colors.white,
+                  size: isPhone ? 18 : isTablet ? 22 : 24,
+                ),
+                SizedBox(width: isTablet ? 12 : 8),
+                Expanded(
+                  child: Text(
+                    'You have successfully left the community',
+                    style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontSize: (isPhone ? 14 : isTablet ? 16 : 18) * textScale,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: EdgeInsets.symmetric(
+              horizontal: isTablet ? 20 : 16,
+              vertical: isTablet ? 20 : 16,
+            ),
+            duration: const Duration(seconds: 3),
+          ),
         );
-      },
-    );
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } catch (e) {
+      // Close loading dialog
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
 
-    if (confirm == true) {
-      if (isLastAdmin) {
-        await _dissolveCommunity();
-      } else {
-        // Existing leave community logic remains the same
-        try {
-          final batch = FirebaseFirestore.instance.batch();
-
-          // Remove from trio subcollection
-          final trioQuery = await FirebaseFirestore.instance
-              .collection('communities')
-              .doc(widget.communityId)
-              .collection('trio')
-              .where('userId', isEqualTo: widget.userId)
-              .get();
-
-          for (var doc in trioQuery.docs) {
-            batch.delete(doc.reference);
-          }
-
-          // Remove from members subcollection
-          final membersQuery = await FirebaseFirestore.instance
-              .collection('communities')
-              .doc(widget.communityId)
-              .collection('members')
-              .where('userId', isEqualTo: widget.userId)
-              .get();
-
-          for (var doc in membersQuery.docs) {
-            batch.delete(doc.reference);
-          }
-
-          // Remove from old community_members collection (if exists)
-          final memberQuery = await FirebaseFirestore.instance
-              .collection('community_members')
-              .where('userId', isEqualTo: widget.userId)
-              .where('communityId', isEqualTo: widget.communityId)
-              .get();
-
-          for (var doc in memberQuery.docs) {
-            batch.delete(doc.reference);
-          }
-
-          // Update member count in community
-          final communityRef = FirebaseFirestore.instance
-              .collection('communities')
-              .doc(widget.communityId);
-          batch.update(communityRef, {
-            'memberCount': FieldValue.increment(-1),
-          });
-
-          // Add to left_members log for tracking
-          final leftMemberRef = FirebaseFirestore.instance
-              .collection('communities')
-              .doc(widget.communityId)
-              .collection('left_members')
-              .doc();
-          batch.set(leftMemberRef, {
-            'userId': widget.userId,
-            'leftAt': FieldValue.serverTimestamp(),
-            'previousRole': widget.userRole,
-          });
-
-          // Update user's community mapping
-          final userRef = FirebaseFirestore.instance
-              .collection('users')
-              .doc(widget.userId);
-          batch.update(userRef, {
-            'communityId': FieldValue.delete(),
-          });
-
-          await batch.commit();
-          widget.onRefresh();
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'You have left the community',
-                  style: GoogleFonts.poppins(color: Colors.white),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Colors.white,
+                  size: isPhone ? 18 : isTablet ? 22 : 24,
                 ),
-                backgroundColor: Colors.green.shade700,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                SizedBox(width: isTablet ? 12 : 8),
+                Expanded(
+                  child: Text(
+                    'Failed to leave community. Please try again.',
+                    style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontSize: (isPhone ? 14 : isTablet ? 16 : 18) * textScale,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-            );
-            Navigator.of(context).popUntil((route) => route.isFirst);
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Failed to leave community: $e',
-                  style: GoogleFonts.poppins(color: Colors.white),
-                ),
-                backgroundColor: Colors.red.shade700,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            );
-          }
-        }
+              ],
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: EdgeInsets.symmetric(
+              horizontal: isTablet ? 20 : 16,
+              vertical: isTablet ? 20 : 16,
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     }
   }
+}
+@override
+Widget build(BuildContext context) {
+  final screenWidth = MediaQuery.of(context).size.width;
+  final screenHeight = MediaQuery.of(context).size.height;
+  final isPhone = screenWidth < 600;
+  final isTablet = screenWidth >= 600 && screenWidth < 1024;
+  final isDesktop = screenWidth >= 1024;
+  final textScale = MediaQuery.of(context).textScaleFactor.clamp(0.8, 1.3);
 
-  @override
-  Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(
-          color: Color(0xFFF7B42C),
-        ),
-      );
-    }
+  if (isLoading) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          Container(
+            height: MediaQuery.of(context).size.height,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFF2A1810).withOpacity(0.9),
+                  const Color(0xFF3D2914).withOpacity(0.7),
+                  const Color(0xFF4A3218).withOpacity(0.5),
+                  Colors.black,
+                ],
+                stops: const [0.0, 0.3, 0.6, 1.0],
+              ),
+            ),
+          ),
+          Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    color: Color(0xFFF7B42C),
+                    strokeWidth: 2,
+                  ),
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'trynna be faster',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+ 
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -981,7 +1395,9 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
       color: const Color(0xFFF7B42C),
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: EdgeInsets.symmetric(
+  horizontal: isPhone ? 16 : isTablet ? 24 : isDesktop ? 32 : 48,
+),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -992,7 +1408,7 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
                   Text(
                     'you are a part of',
                     style: GoogleFonts.poppins(
-                      fontSize: 14,
+                      fontSize: (isPhone ? 12 : isTablet ? 14 : 16) * textScale,
                       color: Colors.white60,
                       fontWeight: FontWeight.w400,
                     ),
@@ -1001,53 +1417,53 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
               ),
             ),
 
-            const SizedBox(height: 20),
+            SizedBox(height: screenHeight * (isPhone ? 0.02 : isTablet ? 0.025 : 0.03)),
 
             // Community Header
             Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white.withOpacity(0.08),
-                    Colors.white.withOpacity(0.04),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: const Color(0xFFF7B42C).withOpacity(0.3),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFF7B42C).withOpacity(0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
+  padding: EdgeInsets.all(isPhone ? 16 : isTablet ? 20 : 24),
+  decoration: BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.white.withOpacity(0.08),
+        Colors.white.withOpacity(0.04),
+      ],
+    ),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(
+      color: const Color(0xFFF7B42C).withOpacity(0.3),
+      width: 1,
+    ),
+    boxShadow: [
+      BoxShadow(
+        color: const Color(0xFFF7B42C).withOpacity(0.1),
+        blurRadius: 20,
+        offset: const Offset(0, 4),
+      ),
+    ],
+  ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: EdgeInsets.all(isTablet ? 16 : 12),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
                           ),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.groups,
                           color: Colors.black87,
-                          size: 24,
+                          size: isPhone ? 20 : isTablet ? 24 : 28,
                         ),
                       ),
-                      const SizedBox(width: 16),
+                      SizedBox(width: isTablet ? 20 : 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1055,16 +1471,16 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
                             Text(
                               communityData?['name'] ?? 'Community',
                               style: GoogleFonts.poppins(
-                                fontSize: 22,
+                                fontSize: (isPhone ? 18 : isTablet ? 22 : 26) * textScale,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.white,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 4,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isTablet ? 16 : 12,
+                                vertical: isTablet ? 6 : 4,
                               ),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
@@ -1075,7 +1491,7 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
                               child: Text(
                                 widget.userRole.toUpperCase(),
                                 style: GoogleFonts.poppins(
-                                  fontSize: 12,
+                                  fontSize: isTablet ? 14 : 12,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.black87,
                                   letterSpacing: 0.8,
@@ -1087,86 +1503,223 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: isTablet ? 20 : 16),
                   if (communityData?['description'] != null)
                     Text(
                       communityData!['description'],
                       style: GoogleFonts.poppins(
-                        fontSize: 14,
+                        fontSize: (isPhone ? 14 : isTablet ? 16 : 18) * textScale,
                         color: Colors.white70,
                         height: 1.4,
                       ),
                     ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      _buildStatCard(
-                        'Members', 
-                        memberCount.toString(), 
-                        Icons.people,
-                        () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ManageMembersPage(
-                                communityId: widget.communityId,
-                                currentUserId: widget.userId,
-                                currentUserRole: widget.userRole,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 12),
-                      if (widget.userRole == 'admin' || widget.userRole == 'moderator')
-                        _buildStatCard(
-                          'Pending', 
-                          pendingRequestsCount.toString(), 
-                          Icons.pending_actions,
-                          () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => PendingRequestsPage(
-                                  communityId: widget.communityId,
-                                  onRequestProcessed: _loadCommunityData,
-                                ),
-                              ),
-                            );
-                          },
-                          pendingRequestsCount > 0 ? pendingRequestsCount : null,
-                        ),
-                      const SizedBox(width: 12),
-                      _buildStatCard(
-                        'Birthdays', 
-                        todaysBirthdays.length.toString(), 
-                        Icons.cake,
-                        _showBirthdayDialog,
-                      ),
-                    ],
-                  ),
+                  SizedBox(height: isTablet ? 20 : 16),
+               Row(
+  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+  children: [
+    Flexible(
+      flex: 1,
+      child: _buildStatCard(
+        'Members', 
+        memberCount.toString(), 
+        Icons.people,
+        () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ManageMembersPage(
+                communityId: widget.communityId,
+                currentUserId: widget.userId,
+                currentUserRole: widget.userRole,
+              ),
+            ),
+          );
+        },
+        isTablet,
+      ),
+    ),
+    if (widget.userRole == 'admin' || widget.userRole == 'moderator') ...[
+      SizedBox(width: isTablet ? 16 : 12),
+      Flexible(
+        flex: 1,
+        child: _buildStatCard(
+          'Pending', 
+          pendingRequestsCount.toString(), 
+          Icons.pending_actions,
+          () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PendingRequestsPage(
+                  communityId: widget.communityId,
+                  onRequestProcessed: _loadCommunityData,
+                ),
+              ),
+            );
+          },
+          isTablet,
+          pendingRequestsCount > 0 ? pendingRequestsCount : null,
+        ),
+      ),
+    ],
+    SizedBox(width: isTablet ? 16 : 12),
+    Flexible(
+      flex: 1,
+      child: _buildStatCard(
+        'Birthdays', 
+        todaysBirthdays.length.toString(), 
+        Icons.cake,
+        () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+            builder: (context) => BirthdaysScreen(
+              communityId: widget.communityId,
+              userId: widget.userId,
+              userRole: widget.userRole,
+              username: _username ?? 'Anonymous',
+            ),
+          ),
+        );
+      },
+      isTablet,
+    ),
+  ),
+  ]
+)
+                
                 ],
               ),
             ),
 
-            const SizedBox(height: 30),
+            SizedBox(height: screenHeight * 0.045),
 
-            // Zones Section
-            Text(
-              isSearching ? 'Search Results' : 'explore different zones',
-              style: GoogleFonts.dmSerifDisplay(
-                fontSize: 24,
-                fontWeight: FontWeight.w400,
-                color: Colors.white,
-                letterSpacing: 0.5,
+            // Notices Card
+            GestureDetector(
+              onTap: _navigateToViewNotices,
+              child: Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(isTablet ? 20 : 16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      const Color(0xFFB8860B).withOpacity(0.25), // Dark golden
+                      const Color(0xFFCD7F32).withOpacity(0.15), // Bronze
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFFDAA520).withOpacity(0.4), // Golden rod
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFB8860B).withOpacity(0.15),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(isTablet ? 12 : 10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [
+                            Color(0xFFB8860B), // Dark golden
+                            Color(0xFFDAA520), // Golden rod
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFB8860B).withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.campaign_outlined,
+                        color: Colors.white,
+                        size: isPhone ? 18 : isTablet ? 22 : 24,
+                      ),
+                    ),
+                    SizedBox(width: isTablet ? 16 : 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Community Notices',
+                            style: GoogleFonts.poppins(
+                              fontSize: isTablet ? 18 : 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(height: isTablet ? 6 : 4),
+                          Text(
+                            'View important announcements and updates',
+                            style: GoogleFonts.poppins(
+                              fontSize: isTablet ? 14 : 12,
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_forward_ios,
+                      color: Colors.white60,
+                      size: isTablet ? 18 : 16,
+                    ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 16),
+
+            SizedBox(height: screenHeight * 0.005),
+
+            SizedBox(height: screenHeight * 0.04),
+
+            // Zones Section
+            Center(
+
+  child: Text(
+    'explore different zones',
+    style: GoogleFonts.dmSerifDisplay(
+      fontSize: (isPhone ? 20 : isTablet ? 28 : 24) * textScale,
+      fontWeight: FontWeight.w400,
+      color: Colors.white,
+      letterSpacing: 0.5,
+    ),
+  ),
+),
+SizedBox(height: isTablet ? 20 : 16),
+
+
+
+if (isSearching)
+  Text(
+    'Search Results',
+    style: GoogleFonts.poppins(
+      fontSize: isTablet ? 18 : 16,
+      fontWeight: FontWeight.w600,
+      color: Colors.white70,
+    ),
+  ),
+if (isSearching) SizedBox(height: isTablet ? 16 : 12),
+            SizedBox(height: isTablet ? 20 : 16),
 
             // Zones Grid/List
-            if (isSearching) _buildSearchResults() else _buildZonesGrid(),
+            if (isSearching) _buildSearchResults(isTablet) else _buildZonesGrid(isTablet),
 
-            const SizedBox(height: 30),
+            SizedBox(height: screenHeight * 0.04),
 
             // Leave Community Button
             Center(
@@ -1182,47 +1735,50 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
                   style: GoogleFonts.poppins(
                     color: Colors.red,
                     fontWeight: FontWeight.w500,
-                    fontSize: 14,
+                    fontSize: (isPhone ? 12 : isTablet ? 14 : 16) * textScale,
                   ),
                 ),
                 style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isTablet ? 20 : 16,
+                    vertical: isTablet ? 12 : 8,
+                  ),
                 ),
               ),
             ),
 
-            const SizedBox(height: 40),
+            SizedBox(height: screenHeight * 0.05),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSearchResults() {
+  Widget _buildSearchResults(bool isTablet) {
     if (filteredZones.isEmpty) {
       return Container(
-        padding: const EdgeInsets.all(40),
+        padding: EdgeInsets.all(isTablet ? 48 : 40),
         child: Column(
           children: [
             Icon(
               Icons.search_off,
-              size: 48,
+              size: isTablet ? 56 : 48,
               color: Colors.white60,
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: isTablet ? 20 : 16),
             Text(
               'No zones found',
               style: GoogleFonts.poppins(
-                fontSize: 18,
+                fontSize: isTablet ? 20 : 18,
                 fontWeight: FontWeight.w600,
                 color: Colors.white70,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: isTablet ? 12 : 8),
             Text(
               'Try searching for confessions, polls, garage, etc.',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: isTablet ? 16 : 14,
                 color: Colors.white60,
               ),
               textAlign: TextAlign.center,
@@ -1235,11 +1791,11 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
     return Column(
       children: filteredZones.map((zone) {
         return Container(
-          margin: const EdgeInsets.only(bottom: 12),
+          margin: EdgeInsets.only(bottom: isTablet ? 16 : 12),
           child: GestureDetector(
             onTap: () => _navigateToZone(zone),
             child: Container(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(isTablet ? 20 : 16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
@@ -1256,7 +1812,7 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: EdgeInsets.all(isTablet ? 12 : 8),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: zone['colors'] as List<Color>,
@@ -1266,27 +1822,31 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
                     child: Icon(
                       zone['icon'] as IconData,
                       color: Colors.white,
-                      size: 20,
+                      size: isTablet ? 24 : 20,
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  SizedBox(width: isTablet ? 20 : 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          zone['name'] as String,
-                          style: GoogleFonts.poppins(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
+                     Text(
+  zone['name'] as String,
+  style: GoogleFonts.poppins(
+    fontSize: isTablet ? 17 : 15,
+    fontWeight: FontWeight.w600,
+    color: Colors.white,
+    height: 1.2,
+  ),
+  maxLines: 2,
+  overflow: TextOverflow.visible,
+  softWrap: true,
+),
+                        SizedBox(height: isTablet ? 6 : 4),
                         Text(
                           zone['desc'] as String,
                           style: GoogleFonts.poppins(
-                            fontSize: 13,
+                            fontSize: isTablet ? 12 : 10,
                             color: Colors.white60,
                           ),
                           maxLines: 2,
@@ -1295,10 +1855,10 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
                       ],
                     ),
                   ),
-                  const Icon(
+                  Icon(
                     Icons.arrow_forward_ios,
                     color: Colors.white60,
-                    size: 16,
+                    size: isTablet ? 18 : 16,
                   ),
                 ],
               ),
@@ -1309,189 +1869,349 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
     );
   }
 
-  Widget _buildZonesGrid() {
-    return Column(
-      children: allZones.asMap().entries.map((entry) {
-        int index = entry.key;
-        Map<String, dynamic> zone = entry.value;
-        bool isLeftAligned = index % 2 == 0;
-        
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          child: GestureDetector(
-            onTap: () => _navigateToZone(zone),
-            child: Container(
-              height: 120,
+Widget _buildZonesGrid(bool isTablet) {
+  final screenWidth = MediaQuery.of(context).size.width;
+  final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+  
+  int crossAxisCount;
+  double childAspectRatio;
+
+  if (isLandscape) {
+    // Landscape-specific logic
+    if (screenWidth < 500) {
+      crossAxisCount = 1;
+      childAspectRatio = 3.5;
+    } else if (screenWidth < 700) {
+      crossAxisCount = 2;
+      childAspectRatio = 2.2;
+    } else if (screenWidth < 1000) {
+      crossAxisCount = 2;
+      childAspectRatio = 2.5;
+    } else {
+      crossAxisCount = 3;
+      childAspectRatio = 2.2;
+    }
+  } else {
+    // Portrait logic
+    if (screenWidth < 400) {
+      crossAxisCount = 1;
+      childAspectRatio = 2.8;
+    } else if (screenWidth < 600) {
+      crossAxisCount = 1;
+      childAspectRatio = 2.5;
+    } else if (screenWidth < 900) {
+      crossAxisCount = 2;
+      childAspectRatio = 1.8;
+    } else if (screenWidth < 1200) {
+      crossAxisCount = 2;
+      childAspectRatio = 2.0;
+    } else {
+      crossAxisCount = 3;
+      childAspectRatio = 1.9;
+    }
+  }
+  
+  if (crossAxisCount > 1) {
+    // Grid layout for larger screens
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        childAspectRatio: isTablet ? 1.8 : 2.2,
+        crossAxisSpacing: isTablet ? 16 : 12,
+        mainAxisSpacing: isTablet ? 16 : 12,
+      ),
+      itemCount: filteredZones.length,
+      itemBuilder: (context, index) {
+        final zone = filteredZones[index];
+        return _buildZoneCard(zone, isTablet);
+      },
+    );
+  }
+
+  // Vertical list for mobile
+  return Column(
+    children: filteredZones.asMap().entries.map((entry) {
+      int index = entry.key;
+      Map<String, dynamic> zone = entry.value;
+      bool isLeftAligned = index % 2 == 0;
+      
+      return Container(
+        margin: EdgeInsets.only(bottom: isTablet ? 20 : 16),
+        child: GestureDetector(
+          onTap: () => _navigateToZone(zone),
+          child:Container(
+  height: () {
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    if (isLandscape) {
+      if (screenWidth < 500) return 100.0;
+      return isTablet ? 120.0 : 110.0;
+    }
+    return isTablet ? 140.0 : 120.0;
+  }(),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: isLeftAligned ? Alignment.centerLeft : Alignment.centerRight,
+                end: isLeftAligned ? Alignment.centerRight : Alignment.centerLeft,
+                colors: [
+                  (zone['colors'] as List<Color>)[0].withOpacity(0.3),
+                  (zone['colors'] as List<Color>)[1].withOpacity(0.1),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: (zone['colors'] as List<Color>)[0].withOpacity(0.4),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (zone['colors'] as List<Color>)[0].withOpacity(0.2),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: EdgeInsets.all(isTablet ? 24 : 20),
+              child: Row(
+                children: isLeftAligned ? [
+                  Container(
+                    padding: EdgeInsets.all(isTablet ? 12 : 8),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: zone['colors'] as List<Color>,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (zone['colors'] as List<Color>)[0].withOpacity(0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      zone['icon'] as IconData,
+                      color: Colors.white,
+                      size: isTablet ? 26 : 22,
+                    ),
+                  ),
+                  SizedBox(width: isTablet ? 20 : 16),
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+  zone['name'] as String,
+  style: GoogleFonts.dmSerifDisplay(
+    fontSize: isTablet ? 17 : 15,
+    fontWeight: FontWeight.w500,
+    color: Colors.white,
+    height: 1.1,
+  ),
+  maxLines: 4,
+  overflow: TextOverflow.visible,
+  softWrap: true,
+),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: isTablet ? 20 : 16),
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+  zone['desc'] as String,
+  style: GoogleFonts.poppins(
+    fontSize: isTablet ? 12 : 10,
+    color: Colors.white70,
+    height: 1.3,
+    fontWeight: FontWeight.w400,
+  ),
+  textAlign: TextAlign.right,
+  maxLines: 4,
+  overflow: TextOverflow.visible,
+  softWrap: true,
+),
+                      ],
+                    ),
+                  ),
+                ] : [
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+  zone['desc'] as String,
+  style: GoogleFonts.poppins(
+    fontSize: isTablet ? 12 : 10,
+    color: Colors.white70,
+    height: 1.3,
+    fontWeight: FontWeight.w400,
+  ),
+  textAlign: TextAlign.left,
+  maxLines: 4,
+  overflow: TextOverflow.visible,
+  softWrap: true,
+),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: isTablet ? 20 : 16),
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                      Text(
+  zone['name'] as String,
+  style: GoogleFonts.dmSerifDisplay(
+    fontSize: isTablet ? 17 : 15,
+    fontWeight: FontWeight.w500,
+    color: Colors.white,
+    height: 1.1,
+  ),
+  textAlign: TextAlign.right,
+  maxLines: 4,
+  overflow: TextOverflow.visible,
+  softWrap: true,
+),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: isTablet ? 20 : 16),
+                  Container(
+                    padding: EdgeInsets.all(isTablet ? 12 : 8),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: zone['colors'] as List<Color>,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (zone['colors'] as List<Color>)[0].withOpacity(0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      zone['icon'] as IconData,
+                      color: Colors.white,
+                      size: isTablet ? 26 : 22,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList(),
+  );
+}
+
+Widget _buildZoneCard(Map<String, dynamic> zone, bool isTablet) {
+  return GestureDetector(
+    onTap: () => _navigateToZone(zone),
+    child: Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            (zone['colors'] as List<Color>)[0].withOpacity(0.3),
+            (zone['colors'] as List<Color>)[1].withOpacity(0.1),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: (zone['colors'] as List<Color>)[0].withOpacity(0.4),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (zone['colors'] as List<Color>)[0].withOpacity(0.2),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(isTablet ? 20 : 16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: EdgeInsets.all(isTablet ? 12 : 8),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: isLeftAligned ? Alignment.centerLeft : Alignment.centerRight,
-                  end: isLeftAligned ? Alignment.centerRight : Alignment.centerLeft,
-                  colors: [
-                    (zone['colors'] as List<Color>)[0].withOpacity(0.3),
-                    (zone['colors'] as List<Color>)[1].withOpacity(0.1),
-                  ],
+                  colors: zone['colors'] as List<Color>,
                 ),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: (zone['colors'] as List<Color>)[0].withOpacity(0.4),
-                  width: 1.5,
-                ),
+                borderRadius: BorderRadius.circular(10),
                 boxShadow: [
                   BoxShadow(
-                    color: (zone['colors'] as List<Color>)[0].withOpacity(0.2),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
+                    color: (zone['colors'] as List<Color>)[0].withOpacity(0.3),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: isLeftAligned ? [
-                    // Left aligned: Icon + Text on left, Description on right
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: zone['colors'] as List<Color>,
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (zone['colors'] as List<Color>)[0].withOpacity(0.3),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        zone['icon'] as IconData,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            zone['name'] as String,
-                            style: GoogleFonts.dmSerifDisplay(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.white,
-                              height: 1.2,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            zone['desc'] as String,
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              color: Colors.white70,
-                              height: 1.4,
-                              fontWeight: FontWeight.w400,
-                            ),
-                            textAlign: TextAlign.right,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] : [
-                    // Right aligned: Description on left, Icon + Text on right
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            zone['desc'] as String,
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              color: Colors.white70,
-                              height: 1.4,
-                              fontWeight: FontWeight.w400,
-                            ),
-                            textAlign: TextAlign.left,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            zone['name'] as String,
-                            style: GoogleFonts.dmSerifDisplay(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.white,
-                              height: 1.2,
-                            ),
-                            textAlign: TextAlign.right,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: zone['colors'] as List<Color>,
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (zone['colors'] as List<Color>)[0].withOpacity(0.3),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        zone['icon'] as IconData,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                    ),
-                  ],
-                ),
+              child: Icon(
+                zone['icon'] as IconData,
+                color: Colors.white,
+                size: isTablet ? 24 : 20,
               ),
             ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildStatCard(String label, String value, IconData icon, VoidCallback onTap, [int? badgeCount]) {
-    return Expanded(
+            SizedBox(height: isTablet ? 12 : 8),
+         Text(
+  zone['name'] as String,
+  style: GoogleFonts.dmSerifDisplay(
+    fontSize: isTablet ? 17 : 15,
+    fontWeight: FontWeight.w500,
+    color: Colors.white,
+    height: 1.1,
+  ),
+  textAlign: TextAlign.center,
+  maxLines: 4,
+  overflow: TextOverflow.visible,
+  softWrap: true,
+),
+            SizedBox(height: isTablet ? 8 : 4),
+            Text(
+  zone['desc'] as String,
+  style: GoogleFonts.poppins(
+    fontSize: isTablet ? 12 : 10,
+    color: Colors.white70,
+    height: 1.3,
+    fontWeight: FontWeight.w400,
+  ),
+  textAlign: TextAlign.center,
+  maxLines: 4,
+  overflow: TextOverflow.visible,
+  softWrap: true,
+),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+  Widget _buildStatCard(String label, String value, IconData icon, VoidCallback onTap, bool isTablet, [int? badgeCount]) {
+    return Container(
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(isTablet ? 22 : 18),
           decoration: BoxDecoration(
             color: const Color(0xFFF7B42C).withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
@@ -1504,24 +2224,27 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
             children: [
               Column(
                 children: [
+                 
                   Icon(
                     icon,
                     color: const Color(0xFFF7B42C),
-                    size: 20,
+                    size: isTablet ? 24 : 20,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
+                   Text(
                     value,
                     style: GoogleFonts.poppins(
-                      fontSize: 18,
+                      fontSize: isTablet ? 20 : 18,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
                     ),
                   ),
+                   SizedBox(height: isTablet ? 10 : 8),
+                 
+                  
                   Text(
                     label,
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: isTablet ? 12 : 10,
                       color: Colors.white70,
                     ),
                   ),
@@ -1532,20 +2255,20 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
                   right: 0,
                   top: 0,
                   child: Container(
-                    padding: const EdgeInsets.all(4),
+                    padding: EdgeInsets.all(isTablet ? 6 : 4),
                     decoration: const BoxDecoration(
                       color: Colors.red,
                       shape: BoxShape.circle,
                     ),
-                    constraints: const BoxConstraints(
-                      minWidth: 16,
-                      minHeight: 16,
+                    constraints: BoxConstraints(
+                      minWidth: isTablet ? 20 : 16,
+                      minHeight: isTablet ? 20 : 16,
                     ),
                     child: Text(
                       badgeCount.toString(),
                       style: GoogleFonts.poppins(
                         color: Colors.white,
-                        fontSize: 10,
+                        fontSize: isTablet ? 12 : 10,
                         fontWeight: FontWeight.w600,
                       ),
                       textAlign: TextAlign.center,
@@ -1569,4 +2292,4 @@ class _CommunityDashboardState extends State<CommunityDashboard> {
         return [const Color(0xFFF7B42C), const Color(0xFFFFD700)];
     }
   }
-}
+} 

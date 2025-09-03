@@ -281,16 +281,16 @@ class _ContactBarterPageState extends State<ContactBarterPage> with TickerProvid
   Widget _buildHeader() {
     return Container(
       padding: EdgeInsets.all(MediaQuery.of(context).size.width * 0.05),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.green.shade900.withOpacity(0.3),
-            Colors.transparent,
-          ],
-        ),
-      ),
+      // decoration: BoxDecoration(
+      //   gradient: LinearGradient(
+      //     begin: Alignment.topLeft,
+      //     end: Alignment.bottomRight,
+      //     colors: [
+      //       Colors.green.shade900.withOpacity(0.3),
+      //       Colors.transparent,
+      //     ],
+      //   ),
+      // ),
       child: Row(
         children: [
           GestureDetector(

@@ -16,6 +16,10 @@ class CommunitySelectionWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final isTablet = screenSize.width > 600;
+    final isSmallScreen = screenSize.height < 700;
+    
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
@@ -23,7 +27,7 @@ class CommunitySelectionWidget extends StatelessWidget {
         children: [
           // Community Icon
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(isTablet ? 28 : isSmallScreen ? 16 : 20),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
@@ -32,25 +36,25 @@ class CommunitySelectionWidget extends StatelessWidget {
               boxShadow: [
                 BoxShadow(
                   color: const Color(0xFFF7B42C).withOpacity(0.3),
-                  blurRadius: 20,
-                  spreadRadius: 2,
+                  blurRadius: isTablet ? 25 : 20,
+                  spreadRadius: isTablet ? 3 : 2,
                 ),
               ],
             ),
-            child: const Icon(
+            child: Icon(
               Icons.groups,
-              size: 50,
+              size: isTablet ? 64 : isSmallScreen ? 40 : 50,
               color: Colors.black87,
             ),
           ),
           
-          const SizedBox(height: 30),
+          SizedBox(height: isSmallScreen ? 20 : 30),
           
           // Title
           Text(
             'Join Your Community',
             style: GoogleFonts.poppins(
-              fontSize: 28,
+              fontSize: isTablet ? 34 : isSmallScreen ? 24 : 28,
               fontWeight: FontWeight.w700,
               color: Colors.white,
               letterSpacing: 0.5,
@@ -58,13 +62,13 @@ class CommunitySelectionWidget extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           
-          const SizedBox(height: 15),
+          SizedBox(height: isSmallScreen ? 10 : 15),
           
           // Subtitle
           Text(
             'Connect with your college community\nand discover amazing experiences together',
             style: GoogleFonts.poppins(
-              fontSize: 16,
+              fontSize: isTablet ? 18 : isSmallScreen ? 14 : 16,
               fontWeight: FontWeight.w400,
               color: Colors.white70,
               height: 1.5,
@@ -72,14 +76,14 @@ class CommunitySelectionWidget extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           
-          const SizedBox(height: 50),
+          SizedBox(height: isSmallScreen ? 30 : 50),
           
-          // Join Community Button
+          // Join Community Button - Styled like create group button
           Container(
             width: double.infinity,
             margin: const EdgeInsets.symmetric(horizontal: 20),
-            child: ElevatedButton(
-              onPressed: () {
+            child: GestureDetector(
+              onTap: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -91,50 +95,55 @@ class CommunitySelectionWidget extends StatelessWidget {
                   ),
                 );
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.transparent,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 0,
-              ).copyWith(
-                backgroundColor: WidgetStateProperty.all(Colors.transparent),
-              ),
               child: Container(
+                padding: EdgeInsets.symmetric(
+                  vertical: isTablet ? 18 : isSmallScreen ? 14 : 16,
+                ),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
+                    colors: [Color(0xFFFFD700), Color(0xFFB77200)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFFF7B42C).withOpacity(0.3),
-                      blurRadius: 12,
+                      color: Colors.amberAccent.withOpacity(0.6),
+                      blurRadius: 18,
+                      spreadRadius: 1,
+                      offset: const Offset(0, 0),
+                    ),
+                    BoxShadow(
+                      color: Colors.amber.withOpacity(0.2),
+                      blurRadius: 4,
+                      spreadRadius: 1,
                       offset: const Offset(0, 4),
                     ),
                   ],
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.group_add,
                       color: Colors.black87,
-                      size: 24,
+                      size: isTablet ? 28 : isSmallScreen ? 20 : 24,
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Join Community',
-                      style: GoogleFonts.poppins(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                        letterSpacing: 0.5,
+                    SizedBox(width: isSmallScreen ? 8 : 12),
+                    ShaderMask(
+                      shaderCallback: (bounds) => const LinearGradient(
+                        colors: [Color(0xFF101010), Color(0xFF222222)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ).createShader(bounds),
+                      blendMode: BlendMode.srcIn,
+                      child: Text(
+                        'JOIN COMMUNITY',
+                        style: GoogleFonts.poppins(
+                          fontSize: isTablet ? 16 : isSmallScreen ? 12 : 14,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.5,
+                        ),
                       ),
                     ),
                   ],
@@ -143,13 +152,11 @@ class CommunitySelectionWidget extends StatelessWidget {
             ),
           ),
           
-          const SizedBox(height: 20),
-          
-          const SizedBox(height: 40),
+          SizedBox(height: isSmallScreen ? 15 : 20),
           
           // Info Cards
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(isTablet ? 24 : isSmallScreen ? 16 : 20),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.05),
               borderRadius: BorderRadius.circular(16),
@@ -163,33 +170,35 @@ class CommunitySelectionWidget extends StatelessWidget {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: EdgeInsets.all(isSmallScreen ? 6 : 8),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF7B42C).withOpacity(0.2),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.info_outline,
-                        color: Color(0xFFF7B42C),
-                        size: 20,
+                        color: const Color(0xFFF7B42C),
+                        size: isTablet ? 24 : isSmallScreen ? 18 : 20,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'One Community Per Person',
-                      style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
+                    SizedBox(width: isSmallScreen ? 8 : 12),
+                    Expanded(
+                      child: Text(
+                        'One Community Per Person',
+                        style: GoogleFonts.poppins(
+                          fontSize: isTablet ? 16 : isSmallScreen ? 12 : 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: isSmallScreen ? 8 : 12),
                 Text(
                   'You can only be part of one community at a time. Choose your college community to connect with fellow students.',
                   style: GoogleFonts.poppins(
-                    fontSize: 13,
+                    fontSize: isTablet ? 15 : isSmallScreen ? 11 : 13,
                     fontWeight: FontWeight.w400,
                     color: Colors.white70,
                     height: 1.4,

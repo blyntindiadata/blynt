@@ -1,4 +1,4 @@
-// screens/anonymous_chat_landing.dart - COMPLETE PLATFORM-AWARE VERSION
+// screens/anonymous_chat_landing.dart - RESPONSIVE & ADAPTIVE VERSION
 
 import 'dart:async';
 import 'dart:io';
@@ -27,14 +27,8 @@ class AnonymousChatLanding extends StatefulWidget {
   State<AnonymousChatLanding> createState() => _AnonymousChatLandingState();
 }
 
-class _AnonymousChatLandingState extends State<AnonymousChatLanding>
-    with TickerProviderStateMixin {
+class _AnonymousChatLandingState extends State<AnonymousChatLanding> {
   final ChatService _chatService = ChatService();
-  
-  late AnimationController _floatingController;
-  late AnimationController _slideController;
-  late Animation<double> _floatingAnimation;
-  late Animation<Offset> _slideAnimation;
   
   StreamSubscription<int>? _liveCountSubscription;
   StreamSubscription<LiveZoneUser?>? _userStatusSubscription;
@@ -46,7 +40,6 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
   @override
   void initState() {
     super.initState();
-    _initAnimations();
     _checkForActiveSession();
     _setSystemUI();
   }
@@ -63,56 +56,32 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
     );
   }
 
-  void _initAnimations() {
-    // Smooth floating animation instead of jarring pulse
-    _floatingController = AnimationController(
-      duration: const Duration(seconds: 3),
-      vsync: this,
-    )..repeat(reverse: true);
-    
-    _slideController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    _floatingAnimation = Tween<double>(
-      begin: -8.0,
-      end: 8.0,
-    ).animate(CurvedAnimation(
-      parent: _floatingController,
-      curve: Curves.easeInOut,
-    ));
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0.0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.easeOutCubic,
-    ));
-
-    _slideController.forward();
-  }
-
   Future<void> _checkForActiveSession() async {
     try {
       final activeSession = await _chatService.getActiveSession(widget.communityId, widget.userId);
       
       if (activeSession != null) {
-        final partnerId = activeSession.getPartnerId(widget.userId);
-        
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            _createPageRoute(ChatScreen(
-              communityId: widget.communityId,
-              userId: widget.userId,
-              username: widget.username,
-              sessionId: activeSession.sessionId,
-              partnerId: partnerId,
-            )),
-          );
-          return;
+        // If identity is revealed or session ended, don't redirect to chat
+        if (activeSession.identityRevealed || activeSession.status == 'ended') {
+          // Session exists but is ended/revealed, continue to show landing page
+          debugPrint('Found ended/revealed session, staying on landing page');
+        } else {
+          // Active session exists, redirect to chat
+          final partnerId = activeSession.getPartnerId(widget.userId);
+          
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              _createPageRoute(ChatScreen(
+                communityId: widget.communityId,
+                userId: widget.userId,
+                username: widget.username,
+                sessionId: activeSession.sessionId,
+                partnerId: partnerId,
+              )),
+            );
+            return;
+          }
         }
       }
 
@@ -147,16 +116,8 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
       (userStatus) {
         if (mounted && userStatus != null) {
           if (userStatus.status == 'paired' && userStatus.sessionId != null) {
-            Navigator.pushReplacement(
-              context,
-              _createPageRoute(ChatScreen(
-                communityId: widget.communityId,
-                userId: widget.userId,
-                username: widget.username,
-                sessionId: userStatus.sessionId!,
-                partnerId: userStatus.pairedWith!,
-              )),
-            );
+            // Only navigate if we don't already know this is an ended session
+            _checkSessionBeforeNavigation(userStatus.sessionId!, userStatus.pairedWith!);
           }
         }
       },
@@ -164,6 +125,29 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
         debugPrint('Error listening to user status: $error');
       },
     );
+  }
+
+  Future<void> _checkSessionBeforeNavigation(String sessionId, String partnerId) async {
+    try {
+      final session = await _chatService.getActiveSession(widget.communityId, widget.userId);
+      
+      if (session != null && !session.identityRevealed && session.status == 'active') {
+        Navigator.pushReplacement(
+          context,
+          _createPageRoute(ChatScreen(
+            communityId: widget.communityId,
+            userId: widget.userId,
+            username: widget.username,
+            sessionId: sessionId,
+            partnerId: partnerId,
+          )),
+        );
+      } else {
+        debugPrint('Session is ended or identity revealed, not navigating to chat');
+      }
+    } catch (e) {
+      debugPrint('Error validating session: $e');
+    }
   }
 
   PageRoute _createPageRoute(Widget page) {
@@ -188,8 +172,6 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
 
   @override
   void dispose() {
-    _floatingController.dispose();
-    _slideController.dispose();
     _liveCountSubscription?.cancel();
     _userStatusSubscription?.cancel();
     super.dispose();
@@ -301,16 +283,8 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final screenWidth = mediaQuery.size.width;
-    final screenHeight = mediaQuery.size.height;
-    final aspectRatio = screenHeight / screenWidth;
-    final isSmallScreen = screenWidth < 360;
-    final isTabletLike = aspectRatio < 1.3;
-    final isVeryTall = aspectRatio > 2.2;
-
     if (_checkingActiveSession) {
-      return _buildLoadingScreen(isSmallScreen);
+      return _buildLoadingScreen();
     }
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -324,29 +298,29 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
       child: Scaffold(
         backgroundColor: const Color(0xFF0A0A0A),
         body: Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                const Color(0xFF1A1A2E),
-                const Color(0xFF0A0A0A),
+                Color(0xFF1A1A2E),
+                Color(0xFF0A0A0A),
                 Colors.black,
               ],
             ),
           ),
           child: SafeArea(
-            top: true,
-            bottom: Platform.isIOS,
-            child: Column(
-              children: [
-                _buildHeader(isSmallScreen),
-                Expanded(
-                  child: isTabletLike 
-                    ? _buildTabletLayout(isSmallScreen)
-                    : _buildPhoneLayout(isSmallScreen, isVeryTall),
-                ),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return Column(
+                  children: [
+                    _buildHeader(constraints),
+                    Expanded(
+                      child: _buildResponsiveBody(constraints),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -354,35 +328,35 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
     );
   }
 
-  Widget _buildLoadingScreen(bool isSmallScreen) {
+  Widget _buildLoadingScreen() {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              const Color(0xFF1A1A2E),
-              const Color(0xFF0A0A0A),
+              Color(0xFF1A1A2E),
+              Color(0xFF0A0A0A),
               Colors.black,
             ],
           ),
         ),
-        child: Center(
+        child: const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               CircularProgressIndicator(
-                color: const Color(0xFF6C63FF),
-                strokeWidth: isSmallScreen ? 2 : 3,
+                color: Color(0xFF6C63FF),
+                strokeWidth: 3,
               ),
-              SizedBox(height: isSmallScreen ? 12 : 16),
+              SizedBox(height: 16),
               Text(
                 'Checking for active sessions...',
                 style: TextStyle(
                   color: Colors.white70,
-                  fontSize: isSmallScreen ? 12 : 14,
+                  fontSize: 14,
                 ),
               ),
             ],
@@ -392,20 +366,33 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
     );
   }
 
-  Widget _buildHeader(bool isSmallScreen) {
+  Widget _buildHeader(BoxConstraints constraints) {
+    final isCompact = constraints.maxHeight < 600;
+    final isSmallWidth = constraints.maxWidth < 360;
+    
     return Container(
-      padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
+      padding: EdgeInsets.all(isSmallWidth ? 12 : 16),
       child: Row(
         children: [
-          IconButton(
-            icon: Icon(
-              Platform.isIOS ? Icons.arrow_back_ios : Icons.arrow_back,
-              color: Colors.white,
-              size: isSmallScreen ? 20 : 24,
-            ),
-            onPressed: () => Navigator.pop(context),
-          ),
-          SizedBox(width: isSmallScreen ? 12 : 16),
+      GestureDetector(
+  onTap: () => Navigator.pop(context),
+  child: Container(
+    padding: EdgeInsets.all(isSmallWidth ? 10 : 12),
+    decoration: BoxDecoration(
+      color: const Color(0xFF0A0A0A).withOpacity(0.8),
+      borderRadius: BorderRadius.circular(isSmallWidth ? 12 : 16),
+      border: Border.all(
+        color: const Color(0xFF6C63FF).withOpacity(0.2),
+      ),
+    ),
+    child: Icon(
+      Platform.isIOS ? Icons.arrow_back_ios_new : Icons.arrow_back,
+      color: Colors.white,
+      size: isSmallWidth ? 16 : 20,
+    ),
+  ),
+),
+          SizedBox(width: isSmallWidth ? 8 : 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -415,22 +402,25 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
                     colors: [Color(0xFF6C63FF), Color(0xFF9C88FF)],
                   ).createShader(bounds),
                   child: Text(
-                    'Anonymous Chat',
+                    'anonymous chat',
                     style: GoogleFonts.dmSerifDisplay(
-                      fontSize: isSmallScreen ? 20 : 24,
+                      fontSize: _getResponsiveFontSize(constraints, 20, 16, 24),
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                       letterSpacing: 0.5,
                     ),
                   ),
                 ),
-                Text(
-                  'Connect with strangers anonymously',
-                  style: GoogleFonts.poppins(
-                    fontSize: isSmallScreen ? 10 : 12,
-                    color: const Color(0xFF6C63FF).withOpacity(0.8),
+                if (!isCompact) ...[
+                  SizedBox(height: 2),
+                  Text(
+                    'go live and talk to an absolutely anonymous person-completely secured',
+                    style: GoogleFonts.poppins(
+                      fontSize: _getResponsiveFontSize(constraints, 12, 10, 14),
+                      color: const Color(0xFF6C63FF).withOpacity(0.8),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -438,7 +428,7 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
             icon: Icon(
               Icons.history,
               color: const Color(0xFF6C63FF),
-              size: isSmallScreen ? 20 : 24,
+              size: isSmallWidth ? 20 : 24,
             ),
             onPressed: () {
               Navigator.push(
@@ -455,43 +445,56 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
     );
   }
 
-  Widget _buildTabletLayout(bool isSmallScreen) {
+  Widget _buildResponsiveBody(BoxConstraints constraints) {
+    final isWideScreen = constraints.maxWidth > 800;
+    final isTablet = constraints.maxWidth > 600 && constraints.maxWidth <= 800;
+    
+    if (isWideScreen) {
+      return _buildWideScreenLayout(constraints);
+    } else if (isTablet) {
+      return _buildTabletLayout(constraints);
+    } else {
+      return _buildPhoneLayout(constraints);
+    }
+  }
+
+  Widget _buildWideScreenLayout(BoxConstraints constraints) {
     return Row(
       children: [
         Expanded(
-          flex: 1,
-          child: _buildMainContent(isSmallScreen, false),
+          flex: 3,
+          child: _buildMainContent(constraints),
         ),
         Container(
           width: 1,
           color: const Color(0xFF6C63FF).withOpacity(0.2),
         ),
         Expanded(
-          flex: 1,
+          flex: 2,
           child: Container(
-            padding: EdgeInsets.all(isSmallScreen ? 20 : 40),
+            padding: const EdgeInsets.all(40),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
                   Icons.people_outline,
-                  size: isSmallScreen ? 60 : 80,
+                  size: 80,
                   color: const Color(0xFF6C63FF).withOpacity(0.3),
                 ),
-                SizedBox(height: isSmallScreen ? 16 : 24),
+                const SizedBox(height: 24),
                 Text(
-                  'Wide Screen Detected',
+                  'Wide Screen Experience',
                   style: GoogleFonts.dmSerifDisplay(
-                    fontSize: isSmallScreen ? 18 : 24,
+                    fontSize: 24,
                     color: Colors.white70,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                SizedBox(height: isSmallScreen ? 8 : 12),
+                const SizedBox(height: 12),
                 Text(
-                  'Enjoy a comfortable chat experience with optimized layout for your device.',
+                  'Optimized layout for your larger screen with enhanced chat experience.',
                   style: GoogleFonts.poppins(
-                    fontSize: isSmallScreen ? 12 : 14,
+                    fontSize: 14,
                     color: Colors.white60,
                     height: 1.5,
                   ),
@@ -505,83 +508,51 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
     );
   }
 
-  Widget _buildPhoneLayout(bool isSmallScreen, bool isVeryTall) {
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: SlideTransition(
-        position: _slideAnimation,
-        child: _buildMainContent(isSmallScreen, isVeryTall),
+  Widget _buildTabletLayout(BoxConstraints constraints) {
+    final double maxWidth = constraints.maxWidth > 700 ? 600.0 : constraints.maxWidth * 0.9;
+    return Center(
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: maxWidth,
+        ),
+        child: _buildMainContent(constraints),
       ),
     );
   }
 
-  Widget _buildMainContent(bool isSmallScreen, bool isVeryTall) {
-    return Container(
-      constraints: BoxConstraints(
-        maxWidth: 600, // Prevent content from getting too wide
+  Widget _buildPhoneLayout(BoxConstraints constraints) {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Container(
+        constraints: BoxConstraints(
+          minHeight: constraints.maxHeight,
+        ),
+        child: _buildMainContent(constraints),
       ),
-      padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
+    );
+  }
+
+  Widget _buildMainContent(BoxConstraints constraints) {
+    final isCompact = constraints.maxHeight < 600;
+    final padding = _getResponsivePadding(constraints);
+    
+    return Container(
+      padding: EdgeInsets.all(padding),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          SizedBox(height: isVeryTall ? 40 : (isSmallScreen ? 20 : 40)),
+          if (!isCompact) SizedBox(height: _getVerticalSpacing(constraints, 20)),
           
-          // Floating anonymous icon
-          AnimatedBuilder(
-            animation: _floatingAnimation,
-            builder: (context, child) {
-              return Transform.translate(
-                offset: Offset(0, _floatingAnimation.value),
-                child: Container(
-                  width: isSmallScreen ? 100 : 120,
-                  height: isSmallScreen ? 100 : 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF6C63FF), Color(0xFF9C88FF)],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF6C63FF).withOpacity(0.3),
-                        blurRadius: isSmallScreen ? 15 : 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: isSmallScreen ? 80 : 100,
-                        height: isSmallScreen ? 80 : 100,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              const Color(0xFF6C63FF).withOpacity(0.4),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.face_retouching_natural,
-                        size: isSmallScreen ? 50 : 60,
-                        color: Colors.white,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
+          // Replace: Anonymous icon with chat bubbles icon
+          _buildChatIcon(constraints),
 
-          SizedBox(height: isSmallScreen ? 30 : 40),
+          SizedBox(height: _getVerticalSpacing(constraints, 40)),
 
+          // Title
           Text(
-            'Ready to Meet Someone New?',
-            style: GoogleFonts.dmSerifDisplay(
-              fontSize: isSmallScreen ? 24 : 28,
+            'ready to meet someone new?',
+            style: GoogleFonts.poppins(
+              fontSize: _getResponsiveFontSize(constraints, 28, 22, 32),
               fontWeight: FontWeight.bold,
               color: Colors.white,
               height: 1.2,
@@ -589,133 +560,197 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
             textAlign: TextAlign.center,
           ),
 
-          SizedBox(height: isSmallScreen ? 12 : 16),
+          SizedBox(height: _getVerticalSpacing(constraints, 16)),
 
+          // Subtitle
           Text(
             'Connect anonymously with people in your community.\nIdentities revealed only after mutual consent.',
             style: GoogleFonts.poppins(
-              fontSize: isSmallScreen ? 12 : 14,
+              fontSize: _getResponsiveFontSize(constraints, 14, 12, 16),
               color: Colors.white70,
               height: 1.5,
             ),
             textAlign: TextAlign.center,
           ),
 
-          SizedBox(height: isSmallScreen ? 30 : 40),
+          SizedBox(height: _getVerticalSpacing(constraints, 40)),
 
           // Live users count
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: isSmallScreen ? 20 : 24,
-              vertical: isSmallScreen ? 12 : 16,
-            ),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  const Color(0xFF6C63FF).withOpacity(0.2),
-                  const Color(0xFF9C88FF).withOpacity(0.1),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: const Color(0xFF6C63FF).withOpacity(0.3),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: isSmallScreen ? 8 : 12,
-                  height: isSmallScreen ? 8 : 12,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0xFF4CAF50),
-                  ),
-                ),
-                SizedBox(width: isSmallScreen ? 8 : 12),
-                Text(
-                  '$_liveUsersCount users live in the zone',
-                  style: GoogleFonts.poppins(
-                    fontSize: isSmallScreen ? 14 : 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _buildLiveUsersCount(constraints),
 
-          SizedBox(height: isSmallScreen ? 40 : 50),
+          SizedBox(height: _getVerticalSpacing(constraints, 50)),
 
           // Go Live button
-          Container(
-            width: double.infinity,
-            constraints: const BoxConstraints(maxWidth: 300),
-            height: isSmallScreen ? 50 : 60,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(30),
-              gradient: const LinearGradient(
-                colors: [Color(0xFF6C63FF), Color(0xFF9C88FF)],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF6C63FF).withOpacity(0.4),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _goLive,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.transparent,
-                shadowColor: Colors.transparent,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-              child: _isLoading
-                  ? SizedBox(
-                      width: isSmallScreen ? 20 : 24,
-                      height: isSmallScreen ? 20 : 24,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: isSmallScreen ? 2 : 2.5,
-                      ),
-                    )
-                  : Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.radio_button_checked,
-                          color: Colors.white,
-                          size: isSmallScreen ? 20 : 24,
-                        ),
-                        SizedBox(width: isSmallScreen ? 8 : 12),
-                        Text(
-                          'Go Live in Zone',
-                          style: GoogleFonts.poppins(
-                            fontSize: isSmallScreen ? 16 : 18,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
+          _buildGoLiveButton(constraints),
 
-          SizedBox(height: isSmallScreen ? 20 : 30),
+          SizedBox(height: _getVerticalSpacing(constraints, 30)),
 
-          _buildFeaturesList(isSmallScreen),
+          // Features list
+          _buildFeaturesList(constraints),
           
-          SizedBox(height: isVeryTall ? 60 : (isSmallScreen ? 30 : 50)),
+          if (!isCompact) SizedBox(height: _getVerticalSpacing(constraints, 50)),
         ],
       ),
     );
   }
 
-  Widget _buildFeaturesList(bool isSmallScreen) {
+  // Replace: Anonymous icon with chat bubbles icon
+  Widget _buildChatIcon(BoxConstraints constraints) {
+    final iconSize = _getResponsiveIconSize(constraints);
+    
+    return Container(
+      width: iconSize,
+      height: iconSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          colors: [Color(0xFF6C63FF), Color(0xFF9C88FF)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF6C63FF).withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: iconSize * 0.8,
+            height: iconSize * 0.8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  const Color(0xFF6C63FF).withOpacity(0.4),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+          Icon(
+            Icons.chat_bubble_outline,
+            size: iconSize * 0.5,
+            color: Colors.white,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLiveUsersCount(BoxConstraints constraints) {
+    final fontSize = _getResponsiveFontSize(constraints, 16, 14, 18);
+    final padding = _getResponsivePadding(constraints);
+    
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: padding,
+        vertical: padding * 0.75,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF6C63FF).withOpacity(0.2),
+            const Color(0xFF9C88FF).withOpacity(0.1),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFF6C63FF).withOpacity(0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: fontSize * 0.75,
+            height: fontSize * 0.75,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFF4CAF50),
+            ),
+          ),
+          SizedBox(width: padding * 0.5),
+          Text(
+            '$_liveUsersCount users live in the zone',
+            style: GoogleFonts.poppins(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGoLiveButton(BoxConstraints constraints) {
+    final buttonHeight = _getResponsiveButtonHeight(constraints);
+    final fontSize = _getResponsiveFontSize(constraints, 18, 16, 20);
+    final iconSize = fontSize + 4;
+    final maxWidth = constraints.maxWidth > 400 ? 350 : constraints.maxWidth * 0.85;
+    
+    return Container(
+      width: double.infinity,
+      constraints: BoxConstraints(maxWidth: maxWidth.toDouble()),
+      height: buttonHeight,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(buttonHeight / 2),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF6C63FF), Color(0xFF9C88FF)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF6C63FF).withOpacity(0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : _goLive,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(buttonHeight / 2),
+          ),
+        ),
+        child: _isLoading
+            ? SizedBox(
+                width: iconSize,
+                height: iconSize,
+                child: const CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2.5,
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.radio_button_checked,
+                    color: Colors.white,
+                    size: iconSize,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Go Live in Zone',
+                    style: GoogleFonts.poppins(
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _buildFeaturesList(BoxConstraints constraints) {
     final features = [
       'Completely anonymous chatting',
       'Identity revealed only after 3 days',
@@ -724,23 +759,27 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
       'Resume chats after closing app',
     ];
 
+    final fontSize = _getResponsiveFontSize(constraints, 12, 11, 14);
+    final iconSize = fontSize + 2;
+    final spacing = _getVerticalSpacing(constraints, 4);
+
     return Column(
       children: features.map((feature) {
         return Padding(
-          padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 3 : 4),
+          padding: EdgeInsets.symmetric(vertical: spacing),
           child: Row(
             children: [
               Icon(
                 Icons.check_circle,
                 color: const Color(0xFF4CAF50),
-                size: isSmallScreen ? 14 : 16,
+                size: iconSize,
               ),
-              SizedBox(width: isSmallScreen ? 8 : 12),
+              SizedBox(width: _getResponsivePadding(constraints) * 0.75),
               Expanded(
                 child: Text(
                   feature,
                   style: GoogleFonts.poppins(
-                    fontSize: isSmallScreen ? 11 : 12,
+                    fontSize: fontSize,
                     color: Colors.white60,
                   ),
                 ),
@@ -750,5 +789,84 @@ class _AnonymousChatLandingState extends State<AnonymousChatLanding>
         );
       }).toList(),
     );
+  }
+
+  // Helper methods for responsive design
+  double _getResponsiveFontSize(BoxConstraints constraints, double base, double small, double large) {
+    final width = constraints.maxWidth;
+    final height = constraints.maxHeight;
+    
+    // Ultra small devices (width < 320)
+    if (width < 320) return small * 0.9;
+    
+    // Small devices (width < 360)
+    if (width < 360) return small;
+    
+    // Large tablets and desktops (width > 800)
+    if (width > 800) return large;
+    
+    // Regular tablets (width > 600)
+    if (width > 600) return large * 0.9;
+    
+    // Adjust for very tall narrow screens
+    if (height / width > 2.2) return small * 1.1;
+    
+    // Adjust for very short wide screens
+    if (height / width < 1.3) return base * 0.9;
+    
+    return base;
+  }
+
+  double _getResponsivePadding(BoxConstraints constraints) {
+    final width = constraints.maxWidth;
+    
+    if (width < 320) return 10;
+    if (width < 360) return 12;
+    if (width > 800) return 32;
+    if (width > 600) return 24;
+    return 16;
+  }
+
+  double _getVerticalSpacing(BoxConstraints constraints, double base) {
+    final height = constraints.maxHeight;
+    final width = constraints.maxWidth;
+    
+    // Very small screens
+    if (height < 600) return base * 0.6;
+    
+    // Very large screens
+    if (height > 900) return base * 1.3;
+    
+    // Ultra wide tablets in landscape
+    if (width > 800 && height / width < 0.7) return base * 0.8;
+    
+    // Very tall screens
+    if (height / width > 2.2) return base * 1.1;
+    
+    return base;
+  }
+
+  double _getResponsiveIconSize(BoxConstraints constraints) {
+    final width = constraints.maxWidth;
+    final height = constraints.maxHeight;
+    
+    if (width < 320) return 80;
+    if (width < 360) return 90;
+    if (width > 800) return 160;
+    if (width > 600) return 140;
+    if (height < 600) return 100;
+    return 120;
+  }
+
+  double _getResponsiveButtonHeight(BoxConstraints constraints) {
+    final width = constraints.maxWidth;
+    final height = constraints.maxHeight;
+    
+    if (width < 320) return 45;
+    if (width < 360) return 50;
+    if (width > 800) return 75;
+    if (width > 600) return 70;
+    if (height < 600) return 55;
+    return 60;
   }
 }

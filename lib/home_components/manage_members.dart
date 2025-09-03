@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'user_profile_screen.dart';
+import 'package:flutter/services.dart';
 
 class ManageMembersPage extends StatefulWidget {
   final String communityId;
@@ -32,6 +33,10 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
   late Animation<double> _fadeAnimation;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  late AnimationController _cardFadeController;
+  late Animation<double> _cardFadeAnimation;
+  late AnimationController _shimmerController;
+  late Animation<double> _shimmerAnimation;
   
   List<String> availableYears = ['All'];
   List<String> availableBranches = ['All'];
@@ -44,6 +49,10 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
   // Member counts for each filter
   Map<String, int> yearCounts = {};
   Map<String, int> branchCounts = {};
+  
+  // Role tracking for restrictions
+  bool hasManager = false;
+  bool hasModerator = false;
 
   bool get isAdmin => widget.currentUserRole == 'admin';
   bool get isModerator => widget.currentUserRole == 'moderator';
@@ -51,6 +60,11 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
   @override
   void initState() {
     super.initState();
+    SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+    _setSystemUIOverlay();
     _loadCurrentUsername();
     _initAnimations();
     _loadAvailableFilters();
@@ -58,7 +72,7 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
 
   void _initAnimations() {
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 400),
       vsync: this,
     );
     _fadeAnimation = CurvedAnimation(
@@ -67,7 +81,7 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
     );
     
     _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 200),
       vsync: this,
     );
     _pulseAnimation = Tween<double>(
@@ -78,15 +92,44 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
       curve: Curves.easeInOut,
     ));
     
+    _cardFadeController = AnimationController(
+      duration: const Duration(milliseconds: 250),
+      vsync: this,
+    );
+    _cardFadeAnimation = CurvedAnimation(
+      parent: _cardFadeController,
+      curve: Curves.easeInOut,
+    );
+    
+    _shimmerController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+    _shimmerAnimation = CurvedAnimation(
+      parent: _shimmerController,
+      curve: Curves.easeInOut,
+    );
+    
     _fadeController.forward();
+    _cardFadeController.forward();
+    _shimmerController.repeat();
   }
 
   @override
   void dispose() {
+    SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeRight,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.dark);
     _yearTabController.dispose();
     _branchTabController.dispose();
     _fadeController.dispose();
     _pulseController.dispose();
+    _cardFadeController.dispose();
+    _shimmerController.dispose();
     super.dispose();
   }
 
@@ -108,7 +151,37 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
     }
   }
 
+  Future<void> _checkExistingRoles() async {
+    try {
+      // Check trio collection for existing manager/moderator
+      final trioSnapshot = await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('trio')
+          .get();
+      
+      bool tempHasManager = false;
+      bool tempHasModerator = false;
+      
+      for (var doc in trioSnapshot.docs) {
+        final data = doc.data();
+        final role = data['role'] as String? ?? '';
+        
+        if (role == 'manager') tempHasManager = true;
+        if (role == 'moderator') tempHasModerator = true;
+      }
+      
+      setState(() {
+        hasManager = tempHasManager;
+        hasModerator = tempHasModerator;
+      });
+    } catch (e) {
+      print('Error checking existing roles: $e');
+    }
+  }
+
   Future<void> _loadAvailableFilters() async {
+      if (!mounted) return;
     try {
       Set<String> years = {};
       Set<String> branches = {};
@@ -161,6 +234,9 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
       _yearTabController.addListener(_onYearTabChanged);
       _branchTabController.addListener(_onBranchTabChanged);
       
+      // Check existing roles after loading data
+      await _checkExistingRoles();
+      
     } catch (e) {
       print('Error loading filters: $e');
     }
@@ -171,13 +247,18 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
     
     final newYear = availableYears[_yearTabController.index];
     if (newYear != selectedYear) {
-      setState(() {
-        selectedYear = newYear;
-        selectedBranch = 'All'; // Reset branch when year changes
+      // Trigger fast fade out
+      _cardFadeController.reverse().then((_) {
+        setState(() {
+          selectedYear = newYear;
+          selectedBranch = 'All';
+        });
+        _loadBranchesForYear(newYear);
+        _branchTabController.animateTo(0);
+        _triggerPulseAnimation();
+        // Fast fade back in
+        _cardFadeController.forward();
       });
-      _loadBranchesForYear(newYear);
-      _branchTabController.animateTo(0); // Reset to "All" branch
-      _triggerPulseAnimation();
     }
   }
 
@@ -186,10 +267,15 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
     
     final newBranch = availableBranches[_branchTabController.index];
     if (newBranch != selectedBranch) {
-      setState(() {
-        selectedBranch = newBranch;
+      // Trigger fast fade out
+      _cardFadeController.reverse().then((_) {
+        setState(() {
+          selectedBranch = newBranch;
+        });
+        _triggerPulseAnimation();
+        // Fast fade back in
+        _cardFadeController.forward();
       });
-      _triggerPulseAnimation();
     }
   }
 
@@ -201,7 +287,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
 
   Future<void> _loadBranchesForYear(String year) async {
     if (year == 'All') {
-      // Load all branches
       _loadAvailableFilters();
       return;
     }
@@ -210,7 +295,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
       Set<String> branches = {};
       Map<String, int> tempBranchCounts = {'All': 0};
       
-      // Get branches for specific year from both collections
       final trioSnapshot = await FirebaseFirestore.instance
           .collection('communities')
           .doc(widget.communityId)
@@ -242,7 +326,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         branchCounts = tempBranchCounts;
       });
       
-      // Update branch tab controller
       _branchTabController.dispose();
       _branchTabController = TabController(length: availableBranches.length, vsync: this);
       _branchTabController.addListener(_onBranchTabChanged);
@@ -252,8 +335,18 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
     }
   }
 
-  // [Keep all the existing methods like _updateMemberRole, _removeMember, etc. - they remain unchanged]
   Future<void> _updateMemberRole(String memberUsername, String newRole) async {
+    // Role validation - prevent multiple managers/moderators
+    if (newRole == 'manager' && hasManager) {
+      _showErrorMessage('A manager already exists in this community');
+      return;
+    }
+    
+    if (newRole == 'moderator' && hasModerator) {
+      _showErrorMessage('A moderator already exists in this community');
+      return;
+    }
+
     setState(() {
       isProcessing = true;
     });
@@ -265,7 +358,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
       DocumentSnapshot? currentDoc;
       String sourceCollection = '';
       
-      // Check trio collection first
       final trioQuery = await FirebaseFirestore.instance
           .collection('communities')
           .doc(widget.communityId)
@@ -278,7 +370,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         currentDoc = trioQuery.docs.first;
         sourceCollection = 'trio';
       } else {
-        // Check members collection
         final memberQuery = await FirebaseFirestore.instance
             .collection('communities')
             .doc(widget.communityId)
@@ -300,21 +391,17 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
       final currentData = currentDoc.data() as Map<String, dynamic>;
       final currentRole = currentData['role'] as String;
       
-      // Determine target collection based on new role
       String targetCollection = (newRole == 'admin' || newRole == 'moderator' || newRole == 'manager') 
           ? 'trio' 
           : 'members';
       
-      // If collections are different, we need to transfer data
       if (sourceCollection != targetCollection) {
-        // Create new document in target collection using username as ID
         final newDocRef = FirebaseFirestore.instance
             .collection('communities')
             .doc(widget.communityId)
             .collection(targetCollection)
             .doc(memberUsername);
         
-        // Prepare updated data
         final updatedData = Map<String, dynamic>.from(currentData);
         updatedData['role'] = newRole;
         updatedData['updatedAt'] = FieldValue.serverTimestamp();
@@ -322,13 +409,9 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         updatedData['transferredFrom'] = sourceCollection;
         updatedData['transferredAt'] = FieldValue.serverTimestamp();
         
-        // Add to target collection
         batch.set(newDocRef, updatedData);
-        
-        // Delete from source collection
         batch.delete(currentDoc.reference);
         
-        // Log the transfer
         final transferLogRef = FirebaseFirestore.instance
             .collection('communities')
             .doc(widget.communityId)
@@ -345,7 +428,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
           'transferredAt': FieldValue.serverTimestamp(),
         });
       } else {
-        // Same collection, just update role
         batch.update(currentDoc.reference, {
           'role': newRole,
           'updatedAt': FieldValue.serverTimestamp(),
@@ -353,7 +435,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         });
       }
 
-      // Update global community_members collection
       final globalMemberQuery = await FirebaseFirestore.instance
           .collection('community_members')
           .where('username', isEqualTo: memberUsername)
@@ -368,6 +449,13 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
       }
 
       await batch.commit();
+      
+      // Update role tracking
+      if (newRole == 'manager') hasManager = true;
+      if (newRole == 'moderator') hasModerator = true;
+      if (currentRole == 'manager') hasManager = false;
+      if (currentRole == 'moderator') hasModerator = false;
+      
       _showSuccessMessage('Member role updated successfully');
     } catch (e) {
       _showErrorMessage('Error updating role: $e');
@@ -393,7 +481,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
     try {
       final batch = FirebaseFirestore.instance.batch();
 
-      // Get user ID for the username
       final userQuery = await FirebaseFirestore.instance
           .collection('users')
           .where('username', isEqualTo: memberUsername)
@@ -405,8 +492,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         userId = userQuery.docs.first.id;
       }
 
-      // Remove from both possible collections
-      // Check and remove from trio
       final trioQuery = await FirebaseFirestore.instance
           .collection('communities')
           .doc(widget.communityId)
@@ -418,7 +503,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         batch.delete(doc.reference);
       }
 
-      // Check and remove from members
       final membersQuery = await FirebaseFirestore.instance
           .collection('communities')
           .doc(widget.communityId)
@@ -430,7 +514,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         batch.delete(doc.reference);
       }
 
-      // Remove from global community_members collection
       final memberQuery = await FirebaseFirestore.instance
           .collection('community_members')
           .where('username', isEqualTo: memberUsername)
@@ -441,7 +524,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         batch.delete(doc.reference);
       }
 
-      // Update community member count
       final communityRef = FirebaseFirestore.instance
           .collection('communities')
           .doc(widget.communityId);
@@ -449,7 +531,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         'memberCount': FieldValue.increment(-1),
       });
 
-      // Add to removed_members log
       final removedRef = FirebaseFirestore.instance
           .collection('communities')
           .doc(widget.communityId)
@@ -463,7 +544,6 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         'reason': 'Removed by ${widget.currentUserRole}',
       });
 
-      // Update user's community mapping if we have userId
       if (userId.isNotEmpty) {
         final userRef = FirebaseFirestore.instance
             .collection('users')
@@ -476,6 +556,11 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
       }
 
       await batch.commit();
+      
+      // Update role tracking if removed member was manager/moderator
+      if (memberRole == 'manager') hasManager = false;
+      if (memberRole == 'moderator') hasModerator = false;
+      
       _showSuccessMessage('Member removed successfully');
     } catch (e) {
       _showErrorMessage('Error removing member: $e');
@@ -487,20 +572,16 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
   }
 
   bool _canManageMember(String memberRole, String memberUsername) {
-    // Can't manage yourself
     if (memberUsername == currentUsername) return false;
     
-    // Only admin can manage members (ban, remove, etc.)
     if (widget.currentUserRole == 'admin') {
       return memberRole != 'admin';
     }
     
-    // Other roles can only view
     return false;
   }
 
   bool _canChangeRole(String memberRole) {
-    // Only admin can change roles
     if (widget.currentUserRole == 'admin') {
       return memberRole != 'admin';
     }
@@ -540,19 +621,37 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
                 ),
               ),
             ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF7B42C),
-                foregroundColor: Colors.black87,
-              ),
-              child: Text(
-                'Confirm',
-                style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+          ElevatedButton(
+  onPressed: () => Navigator.of(context).pop(true),
+  style: ElevatedButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+    ),
+    elevation: 0,
+  ).copyWith(
+    backgroundColor: MaterialStateProperty.all(Colors.transparent),
+    shadowColor: MaterialStateProperty.all(Colors.transparent),
+  ),
+  child: Container(
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.all(Radius.circular(8)),
+    ),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Text(
+      'Confirm',
+      style: GoogleFonts.poppins(
+        fontWeight: FontWeight.w600,
+        color: Colors.black87,
+      ),
+    ),
+  ),
+),
           ],
         );
       },
@@ -587,30 +686,61 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
               ),
               const SizedBox(height: 16),
               if (currentRole == 'member') ...[
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.shield, color: Color(0xFFF7B42C)),
-                  title: Text(
-                    'Promote to Moderator',
-                    style: GoogleFonts.poppins(color: Colors.white),
+                // Only show if no moderator exists
+                if (!hasModerator)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.shield, color: Color(0xFFF7B42C)),
+                    title: Text(
+                      'Promote to Moderator',
+                      style: GoogleFonts.poppins(color: Colors.white),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _updateMemberRole(memberUsername, 'moderator');
+                    },
                   ),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _updateMemberRole(memberUsername, 'moderator');
-                  },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.manage_accounts, color: Colors.purple),
-                  title: Text(
-                    'Promote to Manager',
-                    style: GoogleFonts.poppins(color: Colors.white),
+                // Only show if no manager exists
+                if (!hasManager)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.manage_accounts, color: Colors.purple),
+                    title: Text(
+                      'Promote to Manager',
+                      style: GoogleFonts.poppins(color: Colors.white),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _updateMemberRole(memberUsername, 'manager');
+                    },
                   ),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _updateMemberRole(memberUsername, 'manager');
-                  },
-                ),
+                // Show disabled options with explanation
+                if (hasModerator)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.shield, color: Colors.grey.shade600),
+                    title: Text(
+                      'Promote to Moderator',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade600),
+                    ),
+                    subtitle: Text(
+                      'Moderator already exists',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade700, fontSize: 12),
+                    ),
+                  ),
+                if (hasManager)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.manage_accounts, color: Colors.grey.shade600),
+                    title: Text(
+                      'Promote to Manager',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade600),
+                    ),
+                    subtitle: Text(
+                      'Manager already exists',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade700, fontSize: 12),
+                    ),
+                  ),
               ],
               if (currentRole == 'moderator') ...[
                 ListTile(
@@ -625,32 +755,49 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
                     _updateMemberRole(memberUsername, 'member');
                   },
                 ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.manage_accounts, color: Colors.purple),
-                  title: Text(
-                    'Change to Manager',
-                    style: GoogleFonts.poppins(color: Colors.white),
+                // Only allow change to manager if no manager exists
+                if (!hasManager)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.manage_accounts, color: Colors.purple),
+                    title: Text(
+                      'Change to Manager',
+                      style: GoogleFonts.poppins(color: Colors.white),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _updateMemberRole(memberUsername, 'manager');
+                    },
                   ),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _updateMemberRole(memberUsername, 'manager');
-                  },
-                ),
+                if (hasManager)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.manage_accounts, color: Colors.grey.shade600),
+                    title: Text(
+                      'Change to Manager',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade600),
+                    ),
+                    subtitle: Text(
+                      'Manager already exists',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade700, fontSize: 12),
+                    ),
+                  ),
               ],
               if (currentRole == 'manager') ...[
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.shield, color: Color(0xFFF7B42C)),
-                  title: Text(
-                    'Change to Moderator',
-                    style: GoogleFonts.poppins(color: Colors.white),
+                // Only allow change to moderator if no moderator exists
+                if (!hasModerator)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.shield, color: Color(0xFFF7B42C)),
+                    title: Text(
+                      'Change to Moderator',
+                      style: GoogleFonts.poppins(color: Colors.white),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _updateMemberRole(memberUsername, 'moderator');
+                    },
                   ),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _updateMemberRole(memberUsername, 'moderator');
-                  },
-                ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.person, color: Colors.blue),
@@ -663,6 +810,19 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
                     _updateMemberRole(memberUsername, 'member');
                   },
                 ),
+                if (hasModerator)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.shield, color: Colors.grey.shade600),
+                    title: Text(
+                      'Change to Moderator',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade600),
+                    ),
+                    subtitle: Text(
+                      'Moderator already exists',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade700, fontSize: 12),
+                    ),
+                  ),
               ],
             ],
           ),
@@ -680,91 +840,115 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
     );
   }
 
-  void _showMemberActions(String memberUsername, String memberRole, String memberName) {
+  void _showMemberActions(String memberUsername, String memberRole, String memberName, String? memberYear, String? memberBranch) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF2A1810),
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (BuildContext context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Manage $memberName',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
+        return SafeArea(
+          child: Container(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Manage $memberName',
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              
-              // View Profile
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.person, color: Color(0xFFF7B42C)),
-                title: Text(
-                  'View Profile',
-                  style: GoogleFonts.poppins(color: Colors.white),
-                ),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => UserProfileScreen(
-                        username: memberUsername,
-                        communityId: widget.communityId,
+                const SizedBox(height: 20),
+                
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.person, color: Color(0xFFF7B42C)),
+                  title: Text(
+                    'View Profile',
+                    style: GoogleFonts.poppins(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => UserProfileScreen(
+                          username: memberUsername,
+                          communityId: widget.communityId,
+                        ),
                       ),
+                    );
+                  },
+                ),
+                
+                if (_canChangeRole(memberRole)) ...[
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.swap_vert, color: Color(0xFFF7B42C)),
+                    title: Text(
+                      'Change Role',
+                      style: GoogleFonts.poppins(color: Colors.white),
                     ),
-                  );
-                },
-              ),
-              
-              if (_canChangeRole(memberRole)) ...[
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.swap_vert, color: Color(0xFFF7B42C)),
-                  title: Text(
-                    'Change Role',
-                    style: GoogleFonts.poppins(color: Colors.white),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _showRoleChangeDialog(memberUsername, memberRole, memberName);
+                    },
                   ),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _showRoleChangeDialog(memberUsername, memberRole, memberName);
-                  },
+                ],
+
+                if (isAdmin) ...[
+    ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.school, color: Color(0xFFF7B42C)),
+      title: Text(
+        'Update Year & Branch',
+        style: GoogleFonts.poppins(color: Colors.white),
+      ),
+      onTap: () {
+        Navigator.of(context).pop();
+        _showYearBranchChangeDialog(memberUsername, memberYear ?? '', memberBranch ?? '', memberName);
+      },
+    ),
+  ],
+                
+                if (_canManageMember(memberRole, memberUsername)) ...[
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.remove_circle, color: Colors.red),
+                    title: Text(
+                      'Remove Member',
+                      style: GoogleFonts.poppins(color: Colors.white),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _removeMember(memberUsername, memberRole);
+                    },
+                  ),
+                ],
+                
+                const SizedBox(height: 10),
+                Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.poppins(color: Colors.white60),
+                    ),
+                  ),
                 ),
               ],
-              
-              if (_canManageMember(memberRole, memberUsername)) ...[
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.remove_circle, color: Colors.red),
-                  title: Text(
-                    'Remove Member',
-                    style: GoogleFonts.poppins(color: Colors.white),
-                  ),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _removeMember(memberUsername, memberRole);
-                  },
-                ),
-              ],
-              
-              const SizedBox(height: 10),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(
-                  'Cancel',
-                  style: GoogleFonts.poppins(color: Colors.white60),
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -783,6 +967,11 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
         ),
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).size.height * 0.1,
+          left: 20,
+          right: 20,
+        ),
       ),
     );
   }
@@ -799,40 +988,599 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
         ),
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).size.height * 0.1,
+          left: 20,
+          right: 20,
+        ),
       ),
+    );
+  }
+
+  Future<void> _updateMemberYearBranch(String memberUsername, String? newYear, String? newBranch) async {
+  setState(() {
+    isProcessing = true;
+  });
+
+  try {
+    final batch = FirebaseFirestore.instance.batch();
+    
+    // Find current member document
+    DocumentSnapshot? currentDoc;
+    String sourceCollection = '';
+    
+    final trioQuery = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('trio')
+        .where('username', isEqualTo: memberUsername)
+        .limit(1)
+        .get();
+    
+    if (trioQuery.docs.isNotEmpty) {
+      currentDoc = trioQuery.docs.first;
+      sourceCollection = 'trio';
+    } else {
+      final memberQuery = await FirebaseFirestore.instance
+          .collection('communities')
+          .doc(widget.communityId)
+          .collection('members')
+          .where('username', isEqualTo: memberUsername)
+          .limit(1)
+          .get();
+      
+      if (memberQuery.docs.isNotEmpty) {
+        currentDoc = memberQuery.docs.first;
+        sourceCollection = 'members';
+      }
+    }
+
+    if (currentDoc == null) {
+      throw Exception('Member document not found');
+    }
+
+    // Update the document
+    Map<String, dynamic> updateData = {
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': currentUsername,
+    };
+    
+    if (newYear != null) updateData['year'] = newYear;
+    if (newBranch != null) updateData['branch'] = newBranch;
+    
+    batch.update(currentDoc.reference, updateData);
+
+    // Update global community_members collection
+    final globalMemberQuery = await FirebaseFirestore.instance
+        .collection('community_members')
+        .where('username', isEqualTo: memberUsername)
+        .where('communityId', isEqualTo: widget.communityId)
+        .get();
+
+    for (var doc in globalMemberQuery.docs) {
+      batch.update(doc.reference, updateData);
+    }
+
+    // Update user document
+    final userQuery = await FirebaseFirestore.instance
+        .collection('users')
+        .where('username', isEqualTo: memberUsername)
+        .limit(1)
+        .get();
+
+    if (userQuery.docs.isNotEmpty) {
+      batch.update(userQuery.docs.first.reference, updateData);
+    }
+
+    await batch.commit();
+    
+    // Refresh filters after update
+    await _loadAvailableFilters();
+    
+    _showSuccessMessage('Member year/branch updated successfully');
+  } catch (e) {
+    _showErrorMessage('Error updating year/branch: $e');
+  } finally {
+    setState(() {
+      isProcessing = false;
+    });
+  }
+}
+
+Future<void> _bulkUpdateYear(String fromYear, String toYear) async {
+  final confirmed = await _showConfirmationDialog(
+    'Bulk Year Update',
+    'Are you sure you want to promote all students from $fromYear to $toYear? This action cannot be undone.',
+  );
+  
+  if (!confirmed) return;
+
+  setState(() {
+    isProcessing = true;
+  });
+
+  try {
+    final batch = FirebaseFirestore.instance.batch();
+    int updateCount = 0;
+
+    // Update trio collection
+    final trioQuery = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('trio')
+        .where('year', isEqualTo: fromYear)
+        .get();
+
+    for (var doc in trioQuery.docs) {
+      final data = doc.data();
+      // Only update members and moderators, not admins
+      if (data['role'] == 'member' || data['role'] == 'moderator' || data['role'] == 'manager') {
+        batch.update(doc.reference, {
+          'year': toYear,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedBy': currentUsername,
+          'bulkUpdated': true,
+          'previousYear': fromYear,
+        });
+        updateCount++;
+      }
+    }
+
+    // Update members collection
+    final membersQuery = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('members')
+        .where('year', isEqualTo: fromYear)
+        .get();
+
+    for (var doc in membersQuery.docs) {
+      batch.update(doc.reference, {
+        'year': toYear,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': currentUsername,
+        'bulkUpdated': true,
+        'previousYear': fromYear,
+      });
+      updateCount++;
+    }
+
+    // Update global community_members collection
+    final globalQuery = await FirebaseFirestore.instance
+        .collection('community_members')
+        .where('communityId', isEqualTo: widget.communityId)
+        .where('year', isEqualTo: fromYear)
+        .get();
+
+    for (var doc in globalQuery.docs) {
+      batch.update(doc.reference, {
+        'year': toYear,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    // Update users collection
+    final usersQuery = await FirebaseFirestore.instance
+        .collection('users')
+        .where('communityId', isEqualTo: widget.communityId)
+        .where('year', isEqualTo: fromYear)
+        .get();
+
+    for (var doc in usersQuery.docs) {
+      batch.update(doc.reference, {
+        'year': toYear,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+    
+    // Log the bulk update
+    await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('bulk_updates')
+        .add({
+      'type': 'year_progression',
+      'fromYear': fromYear,
+      'toYear': toYear,
+      'updatedCount': updateCount,
+      'updatedBy': currentUsername,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    
+    // Refresh filters
+    await _loadAvailableFilters();
+    
+    _showSuccessMessage('Successfully updated $updateCount students from $fromYear to $toYear');
+  } catch (e) {
+    _showErrorMessage('Error in bulk update: $e');
+  } finally {
+    setState(() {
+      isProcessing = false;
+    });
+  }
+}
+
+void _showYearBranchChangeDialog(String memberUsername, String currentYear, String currentBranch, String memberName) {
+  String? selectedYear = currentYear;
+  String? selectedBranch = currentBranch;
+  
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF2A1810),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text(
+              'Update Year & Branch',
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Update year and branch for $memberName',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white70,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                
+                // Year Dropdown
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white.withOpacity(0.3)),
+                  ),
+                  child: DropdownButtonFormField<String>(
+                    value: selectedYear,
+                    decoration: InputDecoration(
+                      labelText: 'Year',
+                      labelStyle: GoogleFonts.poppins(color: Colors.white70),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                    dropdownColor: const Color(0xFF2A1810),
+                    style: GoogleFonts.poppins(color: Colors.white),
+                    items: availableYears.where((year) => year != 'All').map((String year) {
+                      return DropdownMenuItem<String>(
+                        value: year,
+                        child: Text(year),
+                      );
+                    }).toList(),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        selectedYear = newValue;
+                      });
+                    },
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Branch Dropdown
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white.withOpacity(0.3)),
+                  ),
+                  child: DropdownButtonFormField<String>(
+                    value: selectedBranch,
+                    decoration: InputDecoration(
+                      labelText: 'Branch',
+                      labelStyle: GoogleFonts.poppins(color: Colors.white70),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                    dropdownColor: const Color(0xFF2A1810),
+                    style: GoogleFonts.poppins(color: Colors.white),
+                    items: availableBranches.where((branch) => branch != 'All').map((String branch) {
+                      return DropdownMenuItem<String>(
+                        value: branch,
+                        child: Text(branch),
+                      );
+                    }).toList(),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        selectedBranch = newValue;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.poppins(color: Colors.white60),
+                ),
+              ),
+             ElevatedButton(
+  onPressed: () {
+    Navigator.of(context).pop();
+    _updateMemberYearBranch(memberUsername, selectedYear, selectedBranch);
+  },
+  style: ElevatedButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+    ),
+    elevation: 0,
+  ).copyWith(
+    backgroundColor: MaterialStateProperty.all(Colors.transparent),
+    shadowColor: MaterialStateProperty.all(Colors.transparent),
+  ),
+  child: Container(
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.all(Radius.circular(8)),
+    ),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Text(
+      'Update',
+      style: GoogleFonts.poppins(
+        fontWeight: FontWeight.w600,
+        color: Colors.black87,
+      ),
+    ),
+  ),
+),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
+void _showBulkYearUpdateDialog() {
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      String? selectedFromYear;
+      String? selectedToYear;
+      
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF2A1810),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text(
+              'Bulk Year Progression',
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Promote all students from one year to the next',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white70,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                
+                // From Year Dropdown
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white.withOpacity(0.3)),
+                  ),
+                  child: DropdownButtonFormField<String>(
+                    value: selectedFromYear,
+                    decoration: InputDecoration(
+                      labelText: 'From Year',
+                      labelStyle: GoogleFonts.poppins(color: Colors.white70),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                    dropdownColor: const Color(0xFF2A1810),
+                    style: GoogleFonts.poppins(color: Colors.white),
+                    items: availableYears.where((year) => year != 'All').map((String year) {
+                      final count = yearCounts[year] ?? 0;
+                      return DropdownMenuItem<String>(
+                        value: year,
+                        child: Text('$year ($count students)'),
+                      );
+                    }).toList(),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        selectedFromYear = newValue;
+                      });
+                    },
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // To Year Dropdown
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white.withOpacity(0.3)),
+                  ),
+                  child: DropdownButtonFormField<String>(
+                    value: selectedToYear,
+                    decoration: InputDecoration(
+                      labelText: 'To Year',
+                      labelStyle: GoogleFonts.poppins(color: Colors.white70),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                    dropdownColor: const Color(0xFF2A1810),
+                    style: GoogleFonts.poppins(color: Colors.white),
+                    items: availableYears.where((year) => year != 'All').map((String year) {
+                      return DropdownMenuItem<String>(
+                        value: year,
+                        child: Text(year),
+                      );
+                    }).toList(),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        selectedToYear = newValue;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.poppins(color: Colors.white60),
+                ),
+              ),
+             ElevatedButton(
+  onPressed: selectedFromYear != null && selectedToYear != null && selectedFromYear != selectedToYear
+      ? () {
+          Navigator.of(context).pop();
+          _bulkUpdateYear(selectedFromYear!, selectedToYear!);
+        }
+      : null,
+  style: ElevatedButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+    ),
+    elevation: 0,
+  ).copyWith(
+    backgroundColor: MaterialStateProperty.all(Colors.transparent),
+    shadowColor: MaterialStateProperty.all(Colors.transparent),
+  ),
+  child: Container(
+    decoration: BoxDecoration(
+      gradient: selectedFromYear != null && selectedToYear != null && selectedFromYear != selectedToYear
+          ? const LinearGradient(
+              colors: [Color(0xFFF7B42C), Color(0xFFFFD700)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            )
+          : LinearGradient(
+              colors: [Colors.grey.shade600, Colors.grey.shade700],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+      borderRadius: const BorderRadius.all(Radius.circular(8)),
+    ),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Text(
+      'Update All',
+      style: GoogleFonts.poppins(
+        fontWeight: FontWeight.w600,
+        color: selectedFromYear != null && selectedToYear != null && selectedFromYear != selectedToYear
+            ? Colors.black87
+            : Colors.white60,
+      ),
+    ),
+  ),
+),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
+void _setSystemUIOverlay() {
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      statusBarBrightness: Brightness.dark,
+      systemNavigationBarColor: Colors.black,
+      systemNavigationBarIconBrightness: Brightness.light,
+      systemNavigationBarDividerColor: Colors.transparent,
+    ),
+  );
+}
+
+  Widget _buildShimmerEffect() {
+    return AnimatedBuilder(
+      animation: _shimmerAnimation,
+      builder: (context, child) {
+        return ShaderMask(
+          shaderCallback: (bounds) {
+            return LinearGradient(
+              begin: Alignment(-1.0, -0.3),
+              end: Alignment(1.0, 0.3),
+              colors: const [
+                Colors.transparent,
+                Colors.white24,
+                Colors.transparent,
+              ],
+              stops: [
+                _shimmerAnimation.value - 0.3,
+                _shimmerAnimation.value,
+                _shimmerAnimation.value + 0.3,
+              ].map((stop) => stop.clamp(0.0, 1.0)).toList(),
+            ).createShader(bounds);
+          },
+          blendMode: BlendMode.srcATop,
+          child: child!,
+        );
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.1),
+            width: 1,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShimmerCard() {
+    final screenSize = MediaQuery.of(context).size;
+    final isTablet = screenSize.width > 600;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      height: isTablet ? 100 : 80,
+      child: _buildShimmerEffect(),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+
+    // Get screen dimensions for responsive design
+    final screenSize = MediaQuery.of(context).size;
+    final isTablet = screenSize.width > 600;
+    final horizontalPadding = isTablet ? 32.0 : 20.0;
+    
     // Don't render until tab controllers are initialized
-    if (availableYears.length <= 1) {
-      return Scaffold(
-        backgroundColor: Colors.black,
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                const Color(0xFF2A1810).withOpacity(0.9),
-                const Color(0xFF3D2914).withOpacity(0.7),
-                const Color(0xFF4A3218).withOpacity(0.5),
-                Colors.black,
-              ],
-              stops: const [0.0, 0.3, 0.6, 1.0],
-            ),
-          ),
-          child: const SafeArea(
-            child: Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFFF7B42C),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
+  
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -856,11 +1604,11 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
             child: Column(
               children: [
                 _buildHeader(),
-                _buildSearchBar(),
-                _buildYearTabBar(),
-                if (selectedYear != 'All') _buildBranchTabBar(),
+                _buildSearchBar(horizontalPadding),
+                _buildYearTabBar(horizontalPadding),
+                if (selectedYear != 'All') _buildBranchTabBar(horizontalPadding),
                 Expanded(
-                  child: _buildMembersList(),
+                  child: _buildMembersList(horizontalPadding),
                 ),
               ],
             ),
@@ -871,28 +1619,31 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
   }
 
   Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.arrow_back_ios_new,
-                color: Color(0xFFF7B42C),
-                size: 20,
-              ),
+  final screenSize = MediaQuery.of(context).size;
+  final isTablet = screenSize.width > 600;
+  final horizontalPadding = isTablet ? 32.0 : 20.0;
+  
+  return Padding(
+    padding: EdgeInsets.all(horizontalPadding),
+    child: Row(
+      children: [
+        GestureDetector(
+          onTap: () => Navigator.pop(context),
+          child: Container(
+            padding: EdgeInsets.all(isTablet ? 12 : 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.arrow_back_ios_new,
+              color: const Color(0xFFF7B42C),
+              size: isTablet ? 24 : 20,
             ),
           ),
-          const SizedBox(width: 16),
-          Container(
-            margin: const EdgeInsets.only(left: 65),
+        ),
+        Expanded(
+          child: Center(
             child: ShaderMask(
               shaderCallback: (bounds) => const LinearGradient(
                 colors: [Color(0xFFF9B233), Color(0xFFFF8008), Color(0xFFB95E00)],
@@ -902,18 +1653,57 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
               blendMode: BlendMode.srcIn,
               child: Text(
                 'the folks',
-                style: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.w600),
+                style: GoogleFonts.poppins(
+                  fontSize: isTablet ? 28 : 22,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
+        ),
+        // Add bulk actions button for admins
+     // Add bulk actions button for admins
+if (isAdmin) ...[
+  GestureDetector(
+    onTap: _showBulkYearUpdateDialog,
+    child: Container(
+      padding: EdgeInsets.all(isTablet ? 12 : 8),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Colors.purple, Color(0xFF8E24AA)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.purple.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
-    );
-  }
+      child: Icon(
+        Icons.group_work,
+        color: Colors.white,
+        size: isTablet ? 24 : 20,
+      ),
+    ),
+  ),
+] else ...[
+  SizedBox(width: isTablet ? 56 : 48),
+],
+      ],
+    ),
+  );
+}
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(double horizontalPadding) {
+    final screenSize = MediaQuery.of(context).size;
+    final isTablet = screenSize.width > 600;
+    
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
@@ -927,14 +1717,25 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         ),
         child: TextField(
           onChanged: (value) => setState(() => searchQuery = value),
-          style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w500),
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+            fontSize: isTablet ? 18 : 16,
+          ),
           cursorColor: const Color(0xFFF7B42C),
           decoration: InputDecoration(
             filled: true,
             fillColor: Colors.white.withOpacity(0.08),
-            prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFFF7B42C), size: 22),
+            prefixIcon: Icon(
+              Icons.search_rounded,
+              color: const Color(0xFFF7B42C),
+              size: isTablet ? 26 : 22,
+            ),
             hintText: 'search members...',
-            hintStyle: GoogleFonts.poppins(color: Colors.white60, fontSize: 16),
+            hintStyle: GoogleFonts.poppins(
+              color: Colors.white60,
+              fontSize: isTablet ? 18 : 16,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
               borderSide: BorderSide.none,
@@ -947,24 +1748,47 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
               borderRadius: BorderRadius.circular(16),
               borderSide: const BorderSide(color: Color(0xFFF7B42C), width: 2),
             ),
-            contentPadding: const EdgeInsets.all(16),
+            contentPadding: EdgeInsets.all(isTablet ? 20 : 16),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildYearTabBar() {
+  Widget _buildYearTabBar(double horizontalPadding) {
+    // Show loading state if tab controller not ready
+  if (availableYears.length <= 1 || _yearTabController.length == 0) {
+    return Container(
+      margin: EdgeInsets.all(horizontalPadding),
+      height: 55,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(25),
+      ),
+      child: Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            color: const Color(0xFFF7B42C),
+            strokeWidth: 2,
+          ),
+        ),
+      ),
+    );
+  }
     return LayoutBuilder(
       builder: (context, constraints) {
+        final screenSize = MediaQuery.of(context).size;
+        final isTablet = screenSize.width > 600;
         final isCompact = constraints.maxWidth < 400;
         final tabCount = availableYears.length;
-        final targetVisibleTabs = 4;
+        final targetVisibleTabs = isTablet ? 6 : 4;
         final shouldScroll = tabCount > targetVisibleTabs;
         
         return Container(
-          margin: EdgeInsets.all(isCompact ? 16 : 20),
-          height: isCompact ? 50 : 55,
+          margin: EdgeInsets.all(horizontalPadding),
+          height: isTablet ? 65 : (isCompact ? 50 : 55),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.08),
             borderRadius: BorderRadius.circular(25),
@@ -985,23 +1809,25 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
             unselectedLabelColor: Colors.white60,
             labelStyle: GoogleFonts.poppins(
               fontWeight: FontWeight.w600, 
-              fontSize: isCompact ? 9 : 11
+              fontSize: isTablet ? 14 : (isCompact ? 9 : 11)
             ),
             unselectedLabelStyle: GoogleFonts.poppins(
               fontWeight: FontWeight.w500, 
-              fontSize: isCompact ? 9 : 11
+              fontSize: isTablet ? 14 : (isCompact ? 9 : 11)
             ),
             dividerColor: Colors.transparent,
             tabs: availableYears.asMap().entries.map((entry) {
               final year = entry.value;
               final count = yearCounts[year] ?? 0;
               
-              final availableWidth = constraints.maxWidth - (isCompact ? 32 : 40);
+              final availableWidth = constraints.maxWidth - (horizontalPadding * 2);
               final tabWidth = shouldScroll 
                   ? (availableWidth / targetVisibleTabs) - 8
                   : (availableWidth / tabCount) - 4;
               
-              final maxLength = (tabWidth / (isCompact ? 8 : 10)).floor().clamp(6, 15);
+              final maxLength = isTablet 
+                  ? 20 
+                  : (tabWidth / (isCompact ? 8 : 10)).floor().clamp(6, 15);
               final displayText = year.length > maxLength 
                   ? '${year.substring(0, maxLength)}...' 
                   : year;
@@ -1015,7 +1841,7 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
                       child: Container(
                         width: shouldScroll ? tabWidth : null,
                         constraints: BoxConstraints(
-                          minWidth: isCompact ? 70 : 80,
+                          minWidth: isTablet ? 100 : (isCompact ? 70 : 80),
                           maxWidth: shouldScroll ? tabWidth : double.infinity,
                         ),
                         child: Column(
@@ -1029,11 +1855,11 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
                                 maxLines: 1,
                               ),
                             ),
-                            const SizedBox(height: 2),
+                            SizedBox(height: isTablet ? 4 : 2),
                             Container(
                               padding: EdgeInsets.symmetric(
-                                horizontal: isCompact ? 4 : 5, 
-                                vertical: 1
+                                horizontal: isTablet ? 8 : (isCompact ? 4 : 5), 
+                                vertical: isTablet ? 2 : 1
                               ),
                               decoration: BoxDecoration(
                                 color: Colors.black.withOpacity(0.2),
@@ -1042,7 +1868,7 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
                               child: Text(
                                 '$count',
                                 style: GoogleFonts.poppins(
-                                  fontSize: isCompact ? 8 : 9,
+                                  fontSize: isTablet ? 12 : (isCompact ? 8 : 9),
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -1061,17 +1887,42 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
     );
   }
 
-  Widget _buildBranchTabBar() {
+  Widget _buildBranchTabBar(double horizontalPadding) {
+    // Show loading state if tab controller not ready
+  if (availableBranches.length <= 1 || _branchTabController.length == 0) {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: horizontalPadding)
+          .copyWith(bottom: horizontalPadding),
+      height: 50,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(25),
+      ),
+      child: Center(
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(
+            color: Colors.white60,
+            strokeWidth: 2,
+          ),
+        ),
+      ),
+    );
+  }
     return LayoutBuilder(
       builder: (context, constraints) {
+        final screenSize = MediaQuery.of(context).size;
+        final isTablet = screenSize.width > 600;
         final isCompact = constraints.maxWidth < 400;
         final tabCount = availableBranches.length;
-        final targetVisibleTabs = 4;
+        final targetVisibleTabs = isTablet ? 6 : 4;
         final shouldScroll = tabCount > targetVisibleTabs;
         
         return Container(
-          margin: EdgeInsets.symmetric(horizontal: isCompact ? 16 : 20).copyWith(bottom: isCompact ? 16 : 20),
-          height: isCompact ? 45 : 50,
+          margin: EdgeInsets.symmetric(horizontal: horizontalPadding)
+              .copyWith(bottom: horizontalPadding),
+          height: isTablet ? 60 : (isCompact ? 45 : 50),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(25),
@@ -1092,23 +1943,25 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
             unselectedLabelColor: Colors.white38,
             labelStyle: GoogleFonts.poppins(
               fontWeight: FontWeight.w600, 
-              fontSize: isCompact ? 8 : 10
+              fontSize: isTablet ? 12 : (isCompact ? 8 : 10)
             ),
             unselectedLabelStyle: GoogleFonts.poppins(
               fontWeight: FontWeight.w500, 
-              fontSize: isCompact ? 8 : 10
+              fontSize: isTablet ? 12 : (isCompact ? 8 : 10)
             ),
             dividerColor: Colors.transparent,
             tabs: availableBranches.asMap().entries.map((entry) {
               final branch = entry.value;
               final count = branchCounts[branch] ?? 0;
               
-              final availableWidth = constraints.maxWidth - (isCompact ? 32 : 40);
+              final availableWidth = constraints.maxWidth - (horizontalPadding * 2);
               final tabWidth = shouldScroll 
                   ? (availableWidth / targetVisibleTabs) - 8
                   : (availableWidth / tabCount) - 4;
               
-              final maxLength = (tabWidth / (isCompact ? 7 : 9)).floor().clamp(5, 12);
+              final maxLength = isTablet 
+                  ? 15 
+                  : (tabWidth / (isCompact ? 7 : 9)).floor().clamp(5, 12);
               final displayText = branch.length > maxLength 
                   ? '${branch.substring(0, maxLength)}...' 
                   : branch;
@@ -1117,7 +1970,7 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
                 child: Container(
                   width: shouldScroll ? tabWidth : null,
                   constraints: BoxConstraints(
-                    minWidth: isCompact ? 60 : 70,
+                    minWidth: isTablet ? 90 : (isCompact ? 60 : 70),
                     maxWidth: shouldScroll ? tabWidth : double.infinity,
                   ),
                   child: Column(
@@ -1131,11 +1984,11 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
                           maxLines: 1,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      SizedBox(height: isTablet ? 3 : 2),
                       Container(
                         padding: EdgeInsets.symmetric(
-                          horizontal: isCompact ? 3 : 4, 
-                          vertical: 1
+                          horizontal: isTablet ? 6 : (isCompact ? 3 : 4), 
+                          vertical: isTablet ? 2 : 1
                         ),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.1),
@@ -1144,7 +1997,7 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
                         child: Text(
                           '$count',
                           style: GoogleFonts.poppins(
-                            fontSize: isCompact ? 7 : 8,
+                            fontSize: isTablet ? 10 : (isCompact ? 7 : 8),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -1160,7 +2013,7 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
     );
   }
 
-  Widget _buildMembersList() {
+  Widget _buildMembersList(double horizontalPadding) {
     return StreamBuilder<List<QuerySnapshot>>(
       stream: Stream.fromFuture(
         Future.wait([
@@ -1178,65 +2031,77 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
       ),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(
-              color: Color(0xFFF7B42C),
+          return FadeTransition(
+            opacity: _cardFadeAnimation,
+            child: ListView.builder(
+              padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+              itemCount: 8,
+              itemBuilder: (context, index) => _buildShimmerCard(),
             ),
           );
         }
 
         if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  color: Colors.red,
-                  size: 48,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Error loading members: ${snapshot.error}',
-                  style: GoogleFonts.poppins(
-                    color: Colors.white,
-                    fontSize: 16,
+          return FadeTransition(
+            opacity: _cardFadeAnimation,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: Colors.red,
+                    size: 48,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                    child: Text(
+                      'Error loading members: ${snapshot.error}',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 16,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         }
 
         if (!snapshot.hasData || 
             (snapshot.data![0].docs.isEmpty && snapshot.data![1].docs.isEmpty)) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF7B42C).withOpacity(0.2),
-                    shape: BoxShape.circle,
+          return FadeTransition(
+            opacity: _cardFadeAnimation,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF7B42C).withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.people_outline,
+                      color: Color(0xFFF7B42C),
+                      size: 48,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.people_outline,
-                    color: Color(0xFFF7B42C),
-                    size: 48,
+                  const SizedBox(height: 20),
+                  Text(
+                    'No Members Found',
+                    style: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'No Members Found',
-                  style: GoogleFonts.poppins(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           );
         }
@@ -1304,92 +2169,112 @@ class _ManageMembersPageState extends State<ManageMembersPage> with TickerProvid
         }).toList();
 
         if (members.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.2),
-                    shape: BoxShape.circle,
+          return FadeTransition(
+            opacity: _cardFadeAnimation,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.search_off,
+                      color: Colors.blue,
+                      size: 48,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.search_off,
-                    color: Colors.blue,
-                    size: 48,
+                  const SizedBox(height: 20),
+                  Text(
+                    'No members found',
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'No members found',
-                  style: GoogleFonts.poppins(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                    child: Text(
+                      selectedYear != 'All' || selectedBranch != 'All'
+                          ? 'Try adjusting your filters'
+                          : 'Try a different search term',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        color: Colors.white60,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  selectedYear != 'All' || selectedBranch != 'All'
-                      ? 'Try adjusting your filters'
-                      : 'Try a different search term',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    color: Colors.white60,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           );
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          physics: const BouncingScrollPhysics(),
-          itemCount: members.length,
-          itemBuilder: (context, index) {
-            final doc = members[index];
-            final data = doc.data() as Map<String, dynamic>;
-            
-            return FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance
-                  .collection('users')
-                  .where('username', isEqualTo: data['username'])
-                  .limit(1)
-                  .get()
-                  .then((query) => query.docs.isNotEmpty ? query.docs.first : throw Exception('User not found')),
-              builder: (context, userSnapshot) {
-                if (!userSnapshot.hasData) {
-                  return const SizedBox(height: 80);
-                }
+        return FadeTransition(
+          opacity: _cardFadeAnimation,
+          child: ListView.builder(
+            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+            physics: const BouncingScrollPhysics(),
+            itemCount: members.length,
+            itemBuilder: (context, index) {
+              final doc = members[index];
+              final data = doc.data() as Map<String, dynamic>;
+              
+              return FutureBuilder<DocumentSnapshot>(
+                future: FirebaseFirestore.instance
+                    .collection('users')
+                    .where('username', isEqualTo: data['username'])
+                    .limit(1)
+                    .get()
+                    .then((query) => query.docs.isNotEmpty ? query.docs.first : throw Exception('User not found')),
+                builder: (context, userSnapshot) {
+                  if (!userSnapshot.hasData) {
+                    return AnimatedOpacity(
+                      opacity: 0.6,
+                      duration: const Duration(milliseconds: 200),
+                      child: _buildShimmerCard(),
+                    );
+                  }
 
-                final userData = userSnapshot.data!.data() as Map<String, dynamic>?;
-                final userName = userData != null 
-                    ? '${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}'.trim()
-                    : 'Unknown User';
-                
-                return MemberCard(
-                  username: data['username'] ?? '',
-                  userName: userName,
-                  userEmail: userData?['email'] ?? '',
-                  role: data['role'] ?? 'member',
-                  year: data['year'],
-                  branch: data['branch'],
-                  status: data['status'] ?? 'active',
-                  joinedAt: data['joinedAt'] as Timestamp? ?? data['assignedAt'] as Timestamp?,
-                  profileImageUrl: data['profileImageUrl'],
-                  isCurrentUser: currentUsername == data['username'],
-                  canManage: _canManageMember(data['role'] ?? 'member', data['username'] ?? ''),
-                  onManage: () => _showMemberActions(
-                    data['username'] ?? '',
-                    data['role'] ?? 'member',
-                    userName,
-                  ),
-                );
-              },
-            );
-          },
+                  final userData = userSnapshot.data!.data() as Map<String, dynamic>?;
+                  final userName = userData != null 
+                      ? '${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}'.trim()
+                      : 'Unknown User';
+                  
+                  return AnimatedOpacity(
+                    opacity: 1.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: MemberCard(
+                      username: data['username'] ?? '',
+                      userName: userName,
+                      userEmail: userData?['email'] ?? '',
+                      role: data['role'] ?? 'member',
+                      year: data['year'],
+                      branch: data['branch'],
+                      status: data['status'] ?? 'active',
+                      joinedAt: data['joinedAt'] as Timestamp? ?? data['assignedAt'] as Timestamp?,
+                      profileImageUrl: data['profileImageUrl'],
+                      isCurrentUser: currentUsername == data['username'],
+                      canManage: _canManageMember(data['role'] ?? 'member', data['username'] ?? ''),
+                      onManage: () => _showMemberActions(
+                         data['username'] ?? '',
+  data['role'] ?? 'member',
+  userName,
+  data['year']?.toString(),
+  data['branch']?.toString(),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         );
       },
     );
@@ -1426,33 +2311,33 @@ class MemberCard extends StatelessWidget {
     required this.onManage,
   });
 
-Color _getRoleColor(String role) {
-  switch (role.toLowerCase()) {
-    case 'admin':
-      return Colors.red;
-    case 'moderator':
-      return const Color(0xFFF7B42C);
-    case 'manager':
-      return Colors.purple;
-    case 'member':
-    default:
-      return Colors.blue;
+  Color _getRoleColor(String role) {
+    switch (role.toLowerCase()) {
+      case 'admin':
+        return Colors.red;
+      case 'moderator':
+        return const Color(0xFFF7B42C);
+      case 'manager':
+        return Colors.purple;
+      case 'member':
+      default:
+        return Colors.blue;
+    }
   }
-}
 
-IconData _getRoleIcon(String role) {
-  switch (role.toLowerCase()) {
-    case 'admin':
-      return Icons.admin_panel_settings;
-    case 'moderator':
-      return Icons.shield;
-    case 'manager':
-      return Icons.manage_accounts;
-    case 'member':
-    default:
-      return Icons.person;
+  IconData _getRoleIcon(String role) {
+    switch (role.toLowerCase()) {
+      case 'admin':
+        return Icons.admin_panel_settings;
+      case 'moderator':
+        return Icons.shield;
+      case 'manager':
+        return Icons.manage_accounts;
+      case 'member':
+      default:
+        return Icons.person;
+    }
   }
-}
 
   String _formatTimestamp(Timestamp? timestamp) {
     if (timestamp == null) return 'Unknown';
@@ -1472,256 +2357,284 @@ IconData _getRoleIcon(String role) {
     }
   }
 
-@override
-Widget build(BuildContext context) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 16),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Colors.white.withOpacity(0.08),
-          Colors.white.withOpacity(0.04),
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final isTablet = screenSize.width > 600;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withOpacity(0.08),
+            Colors.white.withOpacity(0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.1),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(
-        color: Colors.white.withOpacity(0.1),
-        width: 1,
+      child: Padding(
+        padding: EdgeInsets.all(isTablet ? 20 : 16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Avatar
+            Container(
+              width: isTablet ? 60 : 50,
+              height: isTablet ? 60 : 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: _getRoleColor(role),
+                  width: 2,
+                ),
+              ),
+              child: profileImageUrl != null
+                  ? ClipOval(
+                      child: Image.network(
+                        profileImageUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            _buildAvatarFallback(isTablet),
+                      ),
+                    )
+                  : _buildAvatarFallback(isTablet),
+            ),
+            
+            SizedBox(width: isTablet ? 16 : 12),
+            
+            // Member Info - Made flexible
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Name and YOU badge row
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          userName.isNotEmpty ? userName : 'Unknown User',
+                          style: GoogleFonts.poppins(
+                            fontSize: isTablet ? 18 : 15,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (isCurrentUser) ...[
+                        SizedBox(width: isTablet ? 8 : 6),
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isTablet ? 8 : 6, 
+                            vertical: isTablet ? 3 : 2
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF7B42C).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'YOU',
+                            style: GoogleFonts.poppins(
+                              fontSize: isTablet ? 11 : 9,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFFF7B42C),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  
+                  SizedBox(height: isTablet ? 4 : 3),
+                  
+                  // Username
+                  Text(
+                    '@$username',
+                    style: GoogleFonts.poppins(
+                      fontSize: isTablet ? 13 : 11,
+                      color: Colors.white60,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  
+                  SizedBox(height: isTablet ? 8 : 6),
+                  
+                  // Role and badges row - Made scrollable
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        // Role Badge
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isTablet ? 8 : 6, 
+                            vertical: isTablet ? 4 : 3
+                          ),
+                          decoration: BoxDecoration(
+                            color: _getRoleColor(role).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: _getRoleColor(role).withOpacity(0.5),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _getRoleIcon(role),
+                                size: isTablet ? 12 : 10,
+                                color: _getRoleColor(role),
+                              ),
+                              SizedBox(width: isTablet ? 4 : 3),
+                              Text(
+                                role.toUpperCase(),
+                                style: GoogleFonts.poppins(
+                                  fontSize: isTablet ? 10 : 8,
+                                  fontWeight: FontWeight.w600,
+                                  color: _getRoleColor(role),
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        
+                        // Year Badge
+                        if (year != null) ...[
+                          SizedBox(width: isTablet ? 8 : 6),
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isTablet ? 6 : 5, 
+                              vertical: isTablet ? 3 : 2
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              year!,
+                              style: GoogleFonts.poppins(
+                                fontSize: isTablet ? 10 : 8,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ),
+                        ],
+                        
+                        // Branch
+                        if (branch != null) ...[
+                          SizedBox(width: isTablet ? 8 : 6),
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isTablet ? 6 : 5, 
+                              vertical: isTablet ? 3 : 2
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              branch!,
+                              style: GoogleFonts.poppins(
+                                fontSize: isTablet ? 10 : 8,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  
+                  SizedBox(height: isTablet ? 6 : 4),
+                  
+                  // Joined date
+                  Text(
+                    'Joined ${_formatTimestamp(joinedAt)}',
+                    style: GoogleFonts.poppins(
+                      fontSize: isTablet ? 12 : 10,
+                      color: Colors.white54,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            SizedBox(width: isTablet ? 12 : 8),
+            
+            // Manage Button
+            // Manage Button
+GestureDetector(
+  onTap: onManage,
+  child: Container(
+    padding: EdgeInsets.all(isTablet ? 10 : 6),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [
+          const Color(0xFFF7B42C).withOpacity(0.8),
+          const Color(0xFFFFD700).withOpacity(0.6),
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
       ),
+      borderRadius: BorderRadius.circular(6),
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withOpacity(0.2),
-          blurRadius: 10,
-          offset: const Offset(0, 4),
+          color: const Color(0xFFF7B42C).withOpacity(0.3),
+          blurRadius: 4,
+          offset: const Offset(0, 2),
         ),
       ],
     ),
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Avatar
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: _getRoleColor(role),
-                width: 2,
-              ),
-            ),
-            child: profileImageUrl != null
-                ? ClipOval(
-                    child: Image.network(
-                      profileImageUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          _buildAvatarFallback(),
-                    ),
-                  )
-                : _buildAvatarFallback(),
-          ),
-          
-          const SizedBox(width: 12),
-          
-          // Member Info - Made flexible
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Name and YOU badge row
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        userName.isNotEmpty ? userName : 'Unknown User',
-                        style: GoogleFonts.poppins(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (isCurrentUser) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF7B42C).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          'YOU',
-                          style: GoogleFonts.poppins(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFFF7B42C),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                
-                const SizedBox(height: 3),
-                
-                // Username
-                Text(
-                  '@$username',
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    color: Colors.white60,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                
-                const SizedBox(height: 6),
-                
-                // Role and badges row - Made scrollable
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      // Role Badge
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: _getRoleColor(role).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: _getRoleColor(role).withOpacity(0.5),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _getRoleIcon(role),
-                              size: 10,
-                              color: _getRoleColor(role),
-                            ),
-                            const SizedBox(width: 3),
-                            Text(
-                              role.toUpperCase(),
-                              style: GoogleFonts.poppins(
-                                fontSize: 8,
-                                fontWeight: FontWeight.w600,
-                                color: _getRoleColor(role),
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      // Year Badge
-                      if (year != null) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            year!,
-                            style: GoogleFonts.poppins(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.green,
-                            ),
-                          ),
-                        ),
-                      ],
-                      
-                      // Branch
-                      if (branch != null) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            branch!,
-                            style: GoogleFonts.poppins(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.blue,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 4),
-                
-                // Joined date
-                Text(
-                  'Joined ${_formatTimestamp(joinedAt)}',
-                  style: GoogleFonts.poppins(
-                    fontSize: 10,
-                    color: Colors.white54,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          const SizedBox(width: 8),
-          
-          // Manage Button
-          GestureDetector(
-            onTap: onManage,
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF7B42C).withOpacity(0.2),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: const Color(0xFFF7B42C).withOpacity(0.5),
-                ),
-              ),
-              child: Icon(
-                canManage ? Icons.more_vert : Icons.visibility,
-                color: const Color(0xFFF7B42C),
-                size: 16,
-              ),
-            ),
-          ),
-        ],
-      ),
+    child: Icon(
+      canManage ? Icons.more_vert : Icons.visibility,
+      color: Colors.black87,
+      size: isTablet ? 20 : 16,
     ),
-  );
-}
-
-Widget _buildAvatarFallback() {
-  return Container(
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        colors: [_getRoleColor(role), _getRoleColor(role).withOpacity(0.7)],
-      ),
-      shape: BoxShape.circle,
-    ),
-    child: Center(
-      child: Text(
-        userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
-        style: GoogleFonts.poppins(
-          color: Colors.white,
-          fontWeight: FontWeight.w700,
-          fontSize: 16,
+  ),
+),
+          ],
         ),
       ),
-    ),
-  );
+    );
+  }
+
+  Widget _buildAvatarFallback(bool isTablet) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_getRoleColor(role), _getRoleColor(role).withOpacity(0.7)],
+        ),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: isTablet ? 20 : 16,
+          ),
+        ),
+      ),
+    );
+  }
 }
-}
+

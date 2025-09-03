@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:startup/home_components/local_notif.dart';
+import 'package:startup/home_components/notification_service.dart'; // Import your FCM service
 import 'firebase_options.dart';
 import 'aboutuser.dart';
 import 'phone_mail.dart';
@@ -12,6 +14,11 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Initialize notifications (both local and FCM)
+  await LocalNotificationService.initialize();
+  await NotificationService.initialize(); // Add FCM initialization
+  print('✅ Notifications initialized');
   
   runApp(MyApp2());
 }
@@ -67,14 +74,20 @@ class AuthGate extends StatelessWidget {
               final firstName = data['firstName'] ?? 'unknown';
               final lastName = data['lastName'] ?? 'unknown';
 
+              // SAVE FCM TOKEN FOR AUTHENTICATED USER
+              _saveFCMToken(user.uid);
+
               return MainHomepage(
                 uid: user.uid,
                 username: username,
                 firstName: firstName,
                 lastName: lastName,
-                email: user.email??'',
+                email: user.email ?? '',
               );
             } else {
+              // SAVE FCM TOKEN EVEN FOR NEW USERS
+              _saveFCMToken(user.uid);
+              
               return Aboutuser(
                 uid: user.uid,
                 email: user.email ?? '',
@@ -84,5 +97,12 @@ class AuthGate extends StatelessWidget {
         );
       },
     );
+  }
+
+  // Save FCM token when user is authenticated
+  void _saveFCMToken(String userId) {
+    NotificationService.saveUserToken(userId).catchError((error) {
+      print('❌ Error saving FCM token: $error');
+    });
   }
 }

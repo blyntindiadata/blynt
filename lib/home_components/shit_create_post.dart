@@ -224,16 +224,16 @@ Widget _buildHeader() {
       ScreenUtil.responsiveWidth(context, 0.05),
       16,
     ),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          const Color(0xFF1B263B).withOpacity(0.3),
-          Colors.transparent,
-        ],
-      ),
-    ),
+    // decoration: BoxDecoration(
+    //   gradient: LinearGradient(
+    //     begin: Alignment.topLeft,
+    //     end: Alignment.bottomRight,
+    //     colors: [
+    //       const Color(0xFF1B263B).withOpacity(0.3),
+    //       Colors.transparent,
+    //     ],
+    //   ),
+    // ),
     child: Row(
       children: [
         GestureDetector(

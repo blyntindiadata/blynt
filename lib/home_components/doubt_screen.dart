@@ -366,16 +366,16 @@ Widget build(BuildContext context) {
 Widget _buildHeader() {
   return Container(
     padding: responsivePadding,
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          const Color(0xFF1A1A2E).withOpacity(0.3),
-          Colors.transparent,
-        ],
-      ),
-    ),
+    // decoration: BoxDecoration(
+    //   gradient: LinearGradient(
+    //     begin: Alignment.topLeft,
+    //     end: Alignment.bottomRight,
+    //     colors: [
+    //       const Color(0xFF1A1A2E).withOpacity(0.3),
+    //       Colors.transparent,
+    //     ],
+    //   ),
+    // ),
     child: Column(
       children: [
         Row(
@@ -435,7 +435,7 @@ Widget _buildHeader() {
                       colors: [const Color(0xFF9CA3AF), const Color(0xFF6B7280)], // KEEP DOUBTS COLORS
                     ).createShader(bounds),
                     child: Text(
-                      'doubt chamber',
+                      'chamber of confusions',
                       style: GoogleFonts.dmSerifDisplay(
                         fontSize: (isMobile ? 20 : 24) * responsiveFontSize,
                         fontWeight: FontWeight.bold,
@@ -445,7 +445,7 @@ Widget _buildHeader() {
                     ),
                   ),
                   Text(
-                    'ask, learn, grow together',
+                    'the most dreaded zone of blynt',
                     style: GoogleFonts.poppins(
                       fontSize: (isMobile ? 10 : 12) * responsiveFontSize,
                       color: const Color(0xFF9CA3AF), // KEEP DOUBTS COLORS
@@ -486,7 +486,7 @@ Widget _buildSearchBar() {
       ),
       textAlignVertical: TextAlignVertical.center,
       decoration: InputDecoration(
-        hintText: 'Search doubts...',
+        hintText: 'search...',
         hintStyle: GoogleFonts.poppins(
           color: Colors.white38,
           fontSize: (isMobile ? 12 : 14) * responsiveFontSize
@@ -2507,6 +2507,7 @@ class AnswersPage extends StatefulWidget {
     required this.username,
     required this.doubt,
     this.onAnswerPosted,
+    
   }) : super(key: key);
   
   @override
@@ -2588,6 +2589,35 @@ class _AnswersPageState extends State<AnswersPage> {
   }
 }
 
+Future<void> _createNotification({
+  required String recipientUserId,
+  required String title,
+  required String body,
+  required String type,
+  String? doubtId,
+  String? answerId,
+}) async {
+  try {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(recipientUserId)
+        .collection('notifications')
+        .add({
+      'type': type, // 'doubt_answer'
+      'title': title,
+      'message': body,
+      'senderName': widget.username,
+      'senderId': widget.userId,
+      'doubtId': doubtId,
+      'answerId': answerId,
+      'timestamp': FieldValue.serverTimestamp(),
+      'read': false,
+    });
+  } catch (e) {
+    debugPrint('Error creating notification: $e');
+  }
+}
+
   Future<void> _pickImage() async {
     try {
       final XFile? image = await _imagePicker.pickImage(
@@ -2635,74 +2665,74 @@ class _AnswersPageState extends State<AnswersPage> {
 
   // POST ANSWER - ADD TO LIST WITHOUT RELOADING
   Future<void> _postAnswer() async {
-    final answer = _answerController.text.trim();
-    if (answer.isEmpty && _selectedImage == null) {
-      _showMessage('Please write an answer or add an image', isError: true);
-      return;
+  final answer = _answerController.text.trim();
+  if (answer.isEmpty && _selectedImage == null) {
+    _showMessage('Please write an answer or add an image', isError: true);
+    return;
+  }
+
+  if (answer.length > 1500) {
+    _showMessage('Answer must be 1500 characters or less', isError: true);
+    return;
+  }
+
+  _dismissKeyboard();
+
+  try {
+    setState(() => _isPosting = true);
+
+    String? uploadedImageUrl;
+    if (_selectedImage != null) {
+      uploadedImageUrl = await _uploadImage();
     }
 
-    if (answer.length > 1500) {
-      _showMessage('Answer must be 1500 characters or less', isError: true);
-      return;
+    final answerRef = await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('doubts')
+        .doc(widget.doubtId)
+        .collection('answers')
+        .add({
+      'content': answer,
+      'imageUrl': uploadedImageUrl,
+      'authorId': widget.userId,
+      'authorUsername': widget.username,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    // Update answers count
+    await FirebaseFirestore.instance
+        .collection('communities')
+        .doc(widget.communityId)
+        .collection('doubts')
+        .doc(widget.doubtId)
+        .update({'answersCount': FieldValue.increment(1)});
+
+    // Add notification for doubt author
+    await _notifyDoubtAnswer(answerRef.id);
+
+    // Add answer to list in memory - NO RELOAD
+    _addAnswerToList(answerRef.id, answer, uploadedImageUrl);
+
+    // Clear form without rebuilding
+    _answerController.clear();
+    _selectedImage = null;
+
+    // Notify parent about answer posted
+    if (widget.onAnswerPosted != null) {
+      widget.onAnswerPosted!();
     }
 
-    _dismissKeyboard();
-
-    try {
-      setState(() => _isPosting = true);
-
-      String? uploadedImageUrl;
-      if (_selectedImage != null) {
-        uploadedImageUrl = await _uploadImage();
-      }
-
-      final answerRef = await FirebaseFirestore.instance
-          .collection('communities')
-          .doc(widget.communityId)
-          .collection('doubts')
-          .doc(widget.doubtId)
-          .collection('answers')
-          .add({
-        'content': answer,
-        'imageUrl': uploadedImageUrl,
-        'authorId': widget.userId,
-        'authorUsername': widget.username,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      // Update answers count
-      await FirebaseFirestore.instance
-          .collection('communities')
-          .doc(widget.communityId)
-          .collection('doubts')
-          .doc(widget.doubtId)
-          .update({'answersCount': FieldValue.increment(1)});
-
-      // Add answer to list in memory - NO RELOAD
-      _addAnswerToList(answerRef.id, answer, uploadedImageUrl);
-
-      // Clear form without rebuilding
-      _answerController.clear();
-      _selectedImage = null;
-
-      // Notify parent about answer posted
-      if (widget.onAnswerPosted != null) {
-        widget.onAnswerPosted!();
-      }
-
-      _showMessage('Answer posted successfully!');
+    _showMessage('Answer posted successfully!');
       
-      // Auto-scroll to bottom to show new answer
-      // _scrollToBottom();
-        
-    } catch (e) {
-      _showMessage('Failed to post answer: $e', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() => _isPosting = false);
-      }
+  } catch (e) {
+    _showMessage('Failed to post answer: $e', isError: true);
+  } finally {
+    if (mounted) {
+      setState(() => _isPosting = false);
     }
   }
+}
 
   // ADD ANSWER TO MEMORY - NO RELOAD
   void _addAnswerToList(String answerId, String content, String? imageUrl) {
@@ -2719,6 +2749,32 @@ class _AnswersPageState extends State<AnswersPage> {
     // Generate key for the new answer
     _answerKeys[answerId] = GlobalKey();
   });
+}
+
+Future<void> _notifyDoubtAnswer(String answerId) async {
+  try {
+    final doubtAuthorUsername = widget.doubt['authorUsername'];
+    if (doubtAuthorUsername == null || doubtAuthorUsername == widget.username) {
+      return; // Don't notify if it's the same user
+    }
+
+    // Get the doubt author's userId
+    final userData = await _getUserDetails(doubtAuthorUsername);
+    final authorUserId = userData?['userId'];
+    
+    if (authorUserId != null) {
+      await _createNotification(
+        recipientUserId: authorUserId,
+        title: 'New answer to your doubt',
+        body: '${widget.username} answered your doubt',
+        type: 'doubt_answer',
+        doubtId: widget.doubtId,
+        answerId: answerId,
+      );
+    }
+  } catch (e) {
+    debugPrint('Error notifying doubt answer: $e');
+  }
 }
 
   void _scrollToBottom() {
